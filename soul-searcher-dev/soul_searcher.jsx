@@ -10,6 +10,11 @@ const ROOM_H = ROOM_ROWS * TILE;
 const HUD_TOP = ROOM_OY + ROOM_H + 4;
 const BLK = "#000", WHT = "#f4f1e8";
 const pick = a => a[Math.floor(Math.random() * a.length)];
+// Cap a Set to maxSize — evicts oldest entries (RAM guard for ESP32-C3)
+const cappedSet = (set, val, max) => {
+  const arr = [...set, val];
+  return new Set(arr.length > max ? arr.slice(arr.length - max) : arr);
+};
 
 // ── 24x24 Sprites ──────────────────────────────────────────────
 // Each row is 24 chars wide
@@ -785,9 +790,27 @@ const KEEPER = [
   { c: s => s.t === 0, text: "You're awake. That's rare. Most souls wander. You woke up. That makes you a Searcher. Your grave is your anchor. Without it, you'd drift." },
   { c: s => s.t === 1, text: "The lost souls don't know they're dead. Guide them to a shrine. But the demons — they know what they are. And they carry truth in their pain." },
   { c: s => s.t === 2, text: "Something is wrong. Souls aren't just lost. They're held. Pulled down. Face the demons. Listen. There's truth hidden in their anguish." },
+  { c: s => s.t === 3 && s.g === 0, text: "You carry souls but haven't guided any yet. Find a shrine — tall stone monuments. The souls need rest, and you need resolve." },
+  { c: s => s.t >= 3 && s.l === 0, text: "You haven't faced a demon yet, or they held against you. Seek them out. Each one carries a fragment of truth." },
   { c: s => s.t >= 3 && s.l < 4, text: "Each demon carries a fragment. I can feel it growing stronger below. Keep searching." },
-  { c: s => s.l >= 4 && s.l < 7, text: "The pieces connect. Something old feeds beneath. Something that eats what souls are made of." },
-  { c: s => s.l >= 7, text: "You've heard enough. The gate leads to the Ashen Forest. The roots go deeper. You're ready." },
+  { c: s => s.l >= 4 && s.l < 7, text: "The pieces connect. Something old feeds beneath. Something that eats what souls are made of. Three more fragments." },
+  { c: s => s.l >= 7 && s.a === 1, text: "You've heard enough. The gate leads to the Ashen Forest. The roots go deeper. Find it — I believe it's to the southeast." },
+  { c: s => s.a === 2 && s.b === 0, text: "The Ashen Forest. The demons here are different — bound by their own pain. And somewhere, deep in the north... the Devourer waits." },
+  { c: s => s.a === 2 && s.b > 0, text: "You've done it. The Devourer is sated — for now. What you've learned changes things. Rest. You've earned it." },
+];
+
+// ── Quest Milestones ──────────────────────────────────────────
+const MILESTONES = [
+  { id: "wake",     label: "Awaken at your grave",         check: s => s.gs !== "intro" },
+  { id: "keeper",   label: "Speak with the Keeper",        check: s => s.keeperT > 0 },
+  { id: "soul",     label: "Collect a lost soul",          check: s => s.guided > 0 || s.held > 0 },
+  { id: "guide",    label: "Guide a soul to a shrine",     check: s => s.guided > 0 },
+  { id: "lore1",    label: "Learn your first truth",       check: s => s.loreN >= 1 },
+  { id: "lore3",    label: "Gather 3 fragments of truth",  check: s => s.loreN >= 3 },
+  { id: "lore5",    label: "Gather 5 fragments of truth",  check: s => s.loreN >= 5 },
+  { id: "lore7",    label: "Gather 7 fragments — open the gate", check: s => s.loreN >= 7 },
+  { id: "area2",    label: "Enter the Ashen Forest",       check: s => s.area >= 2 },
+  { id: "boss",     label: "Face the Devourer",            check: s => s.bossTrophies.length > 0 },
 ];
 
 const TOTAL_LORE = 10;
@@ -814,6 +837,7 @@ export default function SoulSearcher() {
   const [journal, setJournal] = useState([]);
   const [jOpen, setJOpen] = useState(false);
   const [jScroll, setJScroll] = useState(0);
+  const [jTab, setJTab] = useState(0); // 0 = Progress, 1 = Encounters
   const [tend, setTend] = useState({ confront: 0, comprehend: 0, absolve: 0, endure: 0 });
   const [banished, setBanished] = useState(new Set());
   const [usedW, setUsedW] = useState(new Set());
@@ -891,6 +915,19 @@ export default function SoulSearcher() {
       setDeaths(d => d + 1);
     }
   }, [resolve, gs]);
+
+  // Current objective for HUD display
+  const getObjective = useCallback(() => {
+    if (keeperT === 0) return "Speak with the Keeper.";
+    if (guided === 0 && held === 0) return "Find a lost soul.";
+    if (guided === 0 && held > 0) return "Guide souls to a shrine.";
+    if (loreN < 1) return "Face a demon. Learn truth.";
+    if (loreN < 7) return `Gather truth. (${loreN}/7 fragments)`;
+    if (area === 1 && gateOpen) return "Find the gate. (Southeast)";
+    if (area === 1 && !gateOpen) return "The gate should open soon...";
+    if (area === 2 && bossTrophies.length === 0) return "Find the Devourer. (Far north)";
+    return "The journey continues.";
+  }, [keeperT, guided, held, loreN, area, gateOpen, bossTrophies]);
 
   const getW = useCallback(() => { const a = WHISPERS.filter((_, i) => !usedW.has(i)); if (!a.length) { setUsedW(new Set()); return pick(WHISPERS); } const idx = WHISPERS.indexOf(pick(a)); setUsedW(s => new Set([...s, idx])); return WHISPERS[idx]; }, [usedW]);
 
@@ -1370,12 +1407,18 @@ export default function SoulSearcher() {
       ctx.fillText(`(${roomX}, ${roomY})`, SP_X + SP_W - 40, SP_Y + 74);
       ctx.fillStyle = BLK;
 
+      // ── Current objective ──
+      const OBJ_Y = HUD_TOP + 100;
+      ctx.font = "12px 'Courier New',monospace"; ctx.textAlign = "left";
+      ctx.fillText(getObjective(), 12, OBJ_Y + 10);
+
       // ── Message area ──
-      const MSG_Y = HUD_TOP + 110;
-      ctx.strokeRect(8, MSG_Y - 2, W - 16, 50);
-      ctx.font = "italic 13px 'Courier New',monospace"; ctx.textAlign = "left";
+      const MSG_Y = OBJ_Y + 20;
+      ctx.strokeStyle = BLK;
+      ctx.strokeRect(8, MSG_Y - 2, W - 16, 42);
+      ctx.font = "italic 13px 'Courier New',monospace";
       const ml = wrap(ctx, msg, W - 36);
-      ml.slice(0, 2).forEach((l, i) => ctx.fillText(l, 16, MSG_Y + 16 + i * 17));
+      ml.slice(0, 2).forEach((l, i) => ctx.fillText(l, 16, MSG_Y + 14 + i * 16));
 
       // ── Ink Blot (Resolve indicator) ──
       // Drawn at bottom 1/3 of screen, centered horizontally
@@ -1486,38 +1529,101 @@ export default function SoulSearcher() {
       ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; ctx.fillStyle = BLK;
     }
 
-    // JOURNAL
+    // JOURNAL (tabbed: Progress / Encounters)
     if (jOpen) {
       ctx.fillStyle = WHT; ctx.fillRect(20, 20, W - 40, H - 40); ctx.fillStyle = BLK;
-      ctx.strokeRect(20, 20, W - 40, H - 40);
-      ctx.font = "bold 20px 'Courier New',monospace"; ctx.textAlign = "center";
-      ctx.fillText("Journal", W / 2, 56); ctx.fillRect(40, 66, W - 80, 1);
-      if (!journal.length) {
+      ctx.strokeStyle = BLK;
+      drawBorder(ctx, 22, 22, W - 44, H - 44);
+
+      // Tab bar
+      const tabW = (W - 80) / 2;
+      ctx.font = "bold 14px 'Courier New',monospace"; ctx.textAlign = "center";
+      // Progress tab
+      if (jTab === 0) { ctx.fillRect(40, 38, tabW, 24); ctx.fillStyle = WHT; }
+      ctx.fillText("Progress", 40 + tabW / 2, 55);
+      ctx.fillStyle = BLK;
+      // Encounters tab
+      if (jTab === 1) { ctx.fillRect(40 + tabW, 38, tabW, 24); ctx.fillStyle = WHT; }
+      ctx.fillText("Encounters", 40 + tabW + tabW / 2, 55);
+      ctx.fillStyle = BLK;
+      ctx.fillRect(40, 62, W - 80, 2);
+
+      if (jTab === 0) {
+        // ── PROGRESS TAB ──
+        const ms = { gs, keeperT, guided, held, loreN, area, gateOpen, bossTrophies };
+        let completed = 0;
+        MILESTONES.forEach(m => { if (m.check(ms)) completed++; });
+
+        // Current objective
+        ctx.font = "bold 14px 'Courier New',monospace"; ctx.textAlign = "left";
+        ctx.fillText("Current Objective:", 40, 90);
         ctx.font = "italic 14px 'Courier New',monospace";
-        ctx.fillText("These pages are empty.", W / 2, 110);
-        ctx.fillText("Your story has yet to be written.", W / 2, 135);
-      } else {
+        const objLines = wrap(ctx, getObjective(), W - 100);
+        objLines.slice(0, 2).forEach((l, i) => ctx.fillText(l, 50, 112 + i * 18));
+
+        drawDivider(ctx, 142, 40, W - 40);
+
+        // Milestone list
+        ctx.font = "bold 13px 'Courier New',monospace"; ctx.textAlign = "center";
+        ctx.fillText(`Journey  (${completed}/${MILESTONES.length})`, W / 2, 164);
         ctx.textAlign = "left";
-        journal.slice(jScroll, jScroll + 6).forEach((en, i) => {
-          const ey = 86 + i * 90;
-          ctx.font = "bold 14px 'Courier New',monospace"; ctx.fillText(en.name, 40, ey);
-          ctx.font = "12px 'Courier New',monospace";
-          wrap(ctx, en.note, W - 90).slice(0, 3).forEach((l, li) => ctx.fillText(l, 40, ey + 20 + li * 15));
-          if (en.attempts > 1) ctx.fillText(`Encounters: ${en.attempts}`, 40, ey + 68);
-          ctx.fillRect(40, ey + 76, W - 80, 1);
+        MILESTONES.forEach((m, i) => {
+          const done = m.check(ms);
+          const my = 184 + i * 28;
+          ctx.font = "14px 'Courier New',monospace";
+          ctx.fillText(done ? "[x]" : "[ ]", 44, my);
+          ctx.font = done ? "14px 'Courier New',monospace" : "italic 14px 'Courier New',monospace";
+          ctx.fillText(m.label, 80, my);
+          // First incomplete milestone gets an arrow
+          if (!done && (i === 0 || MILESTONES[i - 1].check(ms))) {
+            ctx.fillText("<", W - 50, my);
+          }
         });
+
+        // Stats at bottom
+        drawDivider(ctx, H - 130, 40, W - 40);
+        ctx.font = "13px 'Courier New',monospace"; ctx.textAlign = "left";
+        ctx.fillText(`Steps: ${steps}`, 44, H - 108);
+        ctx.fillText(`Souls Guided: ${guided}`, 200, H - 108);
+        ctx.fillText(`Deaths: ${deaths}`, 44, H - 88);
+        ctx.fillText(`Rooms Explored: ${visited.size}`, 200, H - 88);
+
+        // Tendency
+        ctx.font = "bold 13px 'Courier New',monospace"; ctx.textAlign = "center";
+        ctx.fillText("Tendency", W / 2, H - 64);
+        ctx.font = "12px 'Courier New',monospace"; ctx.textAlign = "left";
+        const maxT = Math.max(1, Object.values(tend).reduce((a, b) => a + b, 0));
+        ["confront", "comprehend", "absolve", "endure"].forEach((k, i) => {
+          const p = tend[k] / maxT;
+          ctx.fillText(`${(k[0].toUpperCase() + k.slice(1)).padEnd(11)} ${"█".repeat(Math.round(p * 16))}${"░".repeat(16 - Math.round(p * 16))}`, 44, H - 44 + i * 16);
+        });
+      } else {
+        // ── ENCOUNTERS TAB ──
+        if (!journal.length) {
+          ctx.font = "italic 14px 'Courier New',monospace"; ctx.textAlign = "center";
+          ctx.fillText("No encounters yet.", W / 2, 110);
+          ctx.fillText("Seek the demons.", W / 2, 135);
+        } else {
+          ctx.textAlign = "left";
+          journal.slice(jScroll, jScroll + 5).forEach((en, i) => {
+            const ey = 80 + i * 100;
+            ctx.font = "bold 14px 'Courier New',monospace"; ctx.fillText(en.name, 44, ey);
+            ctx.font = "12px 'Courier New',monospace";
+            wrap(ctx, en.note, W - 100).slice(0, 3).forEach((l, li) => ctx.fillText(l, 44, ey + 20 + li * 15));
+            if (en.attempts > 1) ctx.fillText(`Encounters: ${en.attempts}`, 44, ey + 72);
+            ctx.fillRect(44, ey + 82, W - 88, 1);
+          });
+          // Scroll indicator
+          if (journal.length > 5) {
+            ctx.font = "12px 'Courier New',monospace"; ctx.textAlign = "center";
+            ctx.fillText(`${jScroll + 1}-${Math.min(jScroll + 5, journal.length)} of ${journal.length}`, W / 2, H - 50);
+          }
+        }
       }
-      const tY = H - 120;
-      ctx.fillRect(40, tY - 8, W - 80, 1);
-      ctx.font = "bold 13px 'Courier New',monospace"; ctx.textAlign = "center"; ctx.fillText("Tendency", W / 2, tY + 12);
-      ctx.font = "12px 'Courier New',monospace"; ctx.textAlign = "left";
-      const maxT = Math.max(1, Object.values(tend).reduce((a, b) => a + b, 0));
-      ["confront", "comprehend", "absolve", "endure"].forEach((k, i) => {
-        const p = tend[k] / maxT;
-        ctx.fillText(`${(k[0].toUpperCase() + k.slice(1)).padEnd(12)} ${"█".repeat(Math.round(p * 20))}${"░".repeat(20 - Math.round(p * 20))}`, 40, tY + 32 + i * 18);
-      });
+
       ctx.textAlign = "center"; ctx.font = "12px 'Courier New',monospace";
-      ctx.fillText("↑↓ Scroll   J or ESC to close", W / 2, H - 28); ctx.textAlign = "left";
+      ctx.fillText("←→ Tab   ↑↓ Scroll   J/ESC Close", W / 2, H - 28);
+      ctx.textAlign = "left";
     }
 
     // ── Low resolve vignette (deterministic ordered dither) ──
@@ -1557,14 +1663,14 @@ export default function SoulSearcher() {
       // Clear flash so next render is clean
       setDmgFlash(0);
     }
-  }, [gs, introLine, area, room, plX, plY, roomX, roomY, resolve, held, guided, msg, enc, encCh, encG, encR, journal, jOpen, jScroll, tend, banished, loreN, loreFrags, keeperMsg, bossTrophies, potions, homeView, gateOpen, visited, dmgFlash, steps, deaths, ds, wrap, fillCircle, fillEllipse, drawWater, drawGround, drawBorder, drawDivider, drawInkBlot]);
+  }, [gs, introLine, area, room, plX, plY, roomX, roomY, resolve, held, guided, msg, enc, encCh, encG, encR, journal, jOpen, jScroll, jTab, tend, banished, loreN, loreFrags, keeperMsg, bossTrophies, potions, homeView, gateOpen, visited, dmgFlash, steps, deaths, keeperT, ds, wrap, fillCircle, fillEllipse, drawWater, drawGround, drawBorder, drawDivider, drawInkBlot, getObjective]);
 
   // ── Change room ──────────────────────────────────────────────
   const changeRoom = useCallback((newRX, newRY, entryX, entryY) => {
     setRoomX(newRX); setRoomY(newRY);
     setRoom(generateRoom(newRX, newRY, area, seed));
     setPlX(entryX); setPlY(entryY);
-    setVisited(v => new Set([...v, `${newRX},${newRY}`]));
+    setVisited(v => cappedSet(v, `${newRX},${newRY}`, 100));
     setMsg(area === 1 ? pick(AMBIENT1) : pick(AMBIENT2));
   }, [area, seed]);
 
@@ -1579,7 +1685,14 @@ export default function SoulSearcher() {
         setMsg("You open your eyes.");
       } return;
     }
-    if (jOpen) { if (e.key === "j" || e.key === "Escape") setJOpen(false); if (e.key === "ArrowDown") setJScroll(s => Math.min(s + 1, Math.max(0, journal.length - 6))); if (e.key === "ArrowUp") setJScroll(s => Math.max(0, s - 1)); return; }
+    if (jOpen) {
+      if (e.key === "j" || e.key === "Escape") setJOpen(false);
+      if (e.key === "ArrowLeft") { setJTab(0); setJScroll(0); }
+      if (e.key === "ArrowRight") { setJTab(1); setJScroll(0); }
+      if (e.key === "ArrowDown") setJScroll(s => Math.min(s + 1, Math.max(0, journal.length - 5)));
+      if (e.key === "ArrowUp") setJScroll(s => Math.max(0, s - 1));
+      return;
+    }
 
     // Game over: respawn at grave with partial resolve
     if (gs === "gameover") {
@@ -1628,13 +1741,13 @@ export default function SoulSearcher() {
         setResolve(r => Math.max(0, Math.min(100, r + result.r)));
         setEncR(result); setTend(t => ({ ...t, [key]: t[key] + 1 }));
         if (result.ok) {
-          setBanished(b => new Set([...b, enc.id]));
+          setBanished(b => cappedSet(b, enc.id, 200));
           if (dem.boss) setBossTrophies(tr => [...tr, { name: dem.name, sprite: enc.subtype }]);
           if (!loreFrags.includes(dem.lore)) { setLoreFrags(f => [...f, dem.lore]); setLoreN(l => l + 1); }
           if (Math.random() < 0.3) setPotions(p => p + 1);
           setMsg(`The ${dem.name} disperses.`);
         } else setMsg(`The ${dem.name} remains.`);
-        setJournal(j => { const ex = j.find(x => x.id === enc.id); if (ex) return j.map(x => x.id === enc.id ? { ...x, attempts: (x.attempts || 1) + 1, note: `${key}. ${result.ok ? "Yielded." : "Held."}` } : x); return [...j, { id: enc.id, name: dem.name, note: `${key}. ${result.ok ? "Yielded." : "Held."}`, attempts: 1 }]; });
+        setJournal(j => { const ex = j.find(x => x.id === enc.id); if (ex) return j.map(x => x.id === enc.id ? { ...x, attempts: (x.attempts || 1) + 1, note: `${key}. ${result.ok ? "Yielded." : "Held."}` } : x); const nj = [...j, { id: enc.id, name: dem.name, note: `${key}. ${result.ok ? "Yielded." : "Held."}`, attempts: 1 }]; return nj.length > 20 ? nj.slice(nj.length - 20) : nj; });
       } return;
     }
 
@@ -1666,7 +1779,7 @@ export default function SoulSearcher() {
             const whisper = getW();
             setMsg(`A soul whispers: "${whisper}"`);
             setHeld(s => s + 1);
-            setBanished(b => new Set([...b, adj.id]));
+            setBanished(b => cappedSet(b, adj.id, 200));
             // Small resolve boost from collecting souls — compassion sustains
             setResolve(r => Math.min(100, r + 2));
           }
@@ -1684,7 +1797,7 @@ export default function SoulSearcher() {
               setHeld(0);
             } else setMsg(pick(["The shrine hums. Bring souls.", "Stone and silence. It waits.", "The shrine is patient."]));
           }
-          else if (adj.type === "keeper") { const state = { t: keeperT, l: loreN }; const line = [...KEEPER].reverse().find(l => l.c(state)); if (line) { setKeeperMsg(line.text); setKeeperT(t => t + 1); } }
+          else if (adj.type === "keeper") { const state = { t: keeperT, l: loreN, g: guided, a: area, b: bossTrophies.length }; const line = [...KEEPER].reverse().find(l => l.c(state)); if (line) { setKeeperMsg(line.text); setKeeperT(t => t + 1); } }
           else if (adj.type === "gate") {
             if (!gateOpen) { setMsg("Sealed. Gather more truth."); return; }
             setArea(2); changeRoom(0, 0, Math.floor(ROOM_COLS / 2), Math.floor(ROOM_ROWS / 2));
