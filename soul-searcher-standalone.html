@@ -837,6 +837,63 @@ const WHISPERS = ["I forgot which home.", "Didn't mean to leave quietly.", "Bird
 const AMBIENT1 = ["Tall grass rustles.", "The meadow stretches.", "Something stirs.", "No sun. No moon.", "A silence that listens.", "Shadow between trees.", "Lighter grass here.", "Humming stops when you stop.", "Wind carries nothing.", "Grass bends toward you.", "A clearing ahead.", "The path forks invisible.", "Dewdrops on still leaves.", "Your footsteps are the only sound.", "Something watched. Then didn't."];
 const AMBIENT2 = ["Ash drifts upward.", "Bone-white trees.", "No sound in ash.", "Something breathes below.", "The air tastes of endings.", "A branch cracks alone.", "Grey flakes like snow.", "Heavier silence.", "The ground is warm.", "Roots pulse faintly.", "Ash swallows footprints.", "A whisper from underground.", "The trees lean inward.", "Something shifts beneath.", "The silence has weight here."];
 
+// Ambient text when carrying many souls
+const SOUL_AMBIENT = [
+  "The souls hum gently. They trust you.",
+  "Light spills from your hands.",
+  "The air is warmer with them near.",
+  "They whisper to each other.",
+  "You feel their weight — not heavy. Present.",
+];
+
+// Death screen — fragments of the player character's own life
+const DEATH_VISIONS = [
+  "A kitchen. Morning light. Someone singing.",
+  "Hands in soil. The smell of rain.",
+  "A child's drawing taped to a wall.",
+  "Laughter through a screen door.",
+  "The weight of a sleeping cat.",
+  "A letter never sent.",
+  "Your name, spoken gently.",
+  "The moment before the moment.",
+  "Snow falling. A window. Quiet.",
+  "Someone waiting. You can almost see who.",
+];
+
+// Demons react to your resolve and tendency
+function getDemonGreeting(demon, resolve, tend) {
+  // Low resolve — demons sense weakness
+  if (resolve < 20) {
+    const lowResolveLines = {
+      wrathful: "So little left to burn.",
+      grieving: "You look like you understand now.",
+      deceitful: "This won't take long.",
+      prideful: "Not worth kneeling to.",
+      forgotten: "You're almost like me.",
+      hollow: "Almost empty. Almost home.",
+      ancient: "Flickering.",
+      devourer: "You came to me willingly.",
+      ashenwalker: "You'll walk with me soon.",
+      bound: "You carry your own chains now.",
+      rootspeaker: "The roots hear your footsteps slowing.",
+      ashmother: "Oh, you poor thing. Come here.",
+    };
+    if (lowResolveLines[demon.key]) return lowResolveLines[demon.key];
+  }
+  // Tendency-based greetings
+  const maxTend = Object.entries(tend).sort((a, b) => b[1] - a[1])[0];
+  if (maxTend && maxTend[1] >= 5) {
+    const tendLines = {
+      confront: ["Another who leads with force.", "I know your kind. Direct.", "You always choose the hard way."],
+      comprehend: ["A listener. Rare.", "You want to understand? Careful.", "Knowledge has teeth."],
+      absolve: ["The merciful one. How tiring.", "You forgive everything? Even this?", "Mercy again. Let's see."],
+      endure: ["The patient one returns.", "You think outlasting is winning?", "Stone again. Let's see if you crack."],
+    };
+    if (tendLines[maxTend[0]] && Math.random() < 0.4) return pick(tendLines[maxTend[0]]);
+  }
+  return pick(demon.greetings);
+}
+
 // Discoverable inscriptions scattered in the world
 const INSCRIPTIONS = [
   "HERE RESTED ONE WHO WALKED GENTLY",
@@ -927,6 +984,7 @@ function SoulSearcher() {
   const [steps, setSteps] = useState(0); // total steps taken
   const [deaths, setDeaths] = useState(0); // times resolve hit 0
   const [victory, setVictory] = useState(false); // beaten the Devourer
+  const [blessings, setBlessings] = useState(0); // Keeper gifts received (resolve bonus)
 
   const choices = ["Confront", "Comprehend", "Absolve", "Endure"];
   const cDesc = ["Face it directly", "Seek to understand", "Offer mercy", "Stand firm"];
@@ -938,10 +996,10 @@ function SoulSearcher() {
       gs, area, roomX, roomY, plX, plY, resolve, held, guided,
       loreN, loreFrags: [...loreFrags], keeperT, potions, gateOpen,
       banished: [...banished], visited: [...visited], steps, deaths,
-      tend, journal, bossTrophies, seed, victory
+      tend, journal, bossTrophies, seed, victory, blessings
     };
     try { localStorage.setItem("soul_searcher_save", JSON.stringify(state)); } catch(e) {}
-  }, [gs, area, roomX, roomY, plX, plY, resolve, held, guided, loreN, loreFrags, keeperT, potions, gateOpen, banished, visited, steps, deaths, tend, journal, bossTrophies, seed, victory]);
+  }, [gs, area, roomX, roomY, plX, plY, resolve, held, guided, loreN, loreFrags, keeperT, potions, gateOpen, banished, visited, steps, deaths, tend, journal, bossTrophies, seed, victory, blessings]);
 
   const loadGame = useCallback(() => {
     try {
@@ -962,6 +1020,7 @@ function SoulSearcher() {
       setTend(s.tend || { confront: 0, comprehend: 0, absolve: 0, endure: 0 });
       setJournal(s.journal || []); setBossTrophies(s.bossTrophies || []);
       setVictory(s.victory || false);
+      setBlessings(s.blessings || 0);
       setMsg("Your memory returns.");
       return true;
     } catch(e) { return false; }
@@ -1563,11 +1622,22 @@ function SoulSearcher() {
         });
       } else {
         ctx.textAlign = "center"; ctx.font = "bold 16px 'Courier New',monospace";
-        ctx.fillText(encR.ok ? "The presence disperses." : "It remains.", W / 2, oY + 24);
-        ctx.font = "italic 13px 'Courier New',monospace";
-        ctx.fillText(encR.ok ? (d.boss ? "A trophy remains at your grave." : "The air lifts.") : "You will meet again.", W / 2, oY + 48);
-        drawDivider(ctx, oY + 60, 100, W - 100);
-        ctx.font = "bold 14px 'Courier New',monospace"; ctx.fillText("ENTER to continue", W / 2, oY + 82);
+        if (encR.ok) {
+          ctx.fillText(d.boss ? "The hunger is sated." : "The presence disperses.", W / 2, oY + 18);
+          ctx.font = "italic 13px 'Courier New',monospace";
+          // Show the lore fragment they learned
+          const loreLines = wrap(ctx, `"${d.lore}"`, W - 80);
+          loreLines.slice(0, 2).forEach((l, i) => ctx.fillText(l, W / 2, oY + 42 + i * 18));
+          const nextY = oY + 42 + Math.min(loreLines.length, 2) * 18 + 14;
+          drawDivider(ctx, nextY, 100, W - 100);
+          ctx.font = "bold 14px 'Courier New',monospace"; ctx.fillText("ENTER to continue", W / 2, nextY + 24);
+        } else {
+          ctx.fillText("It remains.", W / 2, oY + 18);
+          ctx.font = "italic 13px 'Courier New',monospace";
+          ctx.fillText("You will meet again.", W / 2, oY + 42);
+          drawDivider(ctx, oY + 58, 100, W - 100);
+          ctx.font = "bold 14px 'Courier New',monospace"; ctx.fillText("ENTER to continue", W / 2, oY + 80);
+        }
       }
 
       // Ink blot resolve indicator
@@ -1637,24 +1707,33 @@ function SoulSearcher() {
       ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
     }
 
-    // GAME OVER
+    // GAME OVER — with visions from the player's past life
     if (gs === "gameover") {
       ctx.fillStyle = BLK; ctx.fillRect(0, 0, W, H); ctx.fillStyle = WHT;
-      // Full-screen ink blot effect
-      ctx.fillStyle = WHT;
       drawInkBlot(ctx, W / 2, H / 2, 100, W * 0.45, H * 0.35);
       ctx.fillStyle = WHT;
       ctx.font = "bold 28px 'Courier New',monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("Your resolve", W / 2, H / 2 - 60);
-      ctx.fillText("is spent.", W / 2, H / 2 - 25);
+      ctx.fillText("Your resolve", W / 2, 200);
+      ctx.fillText("is spent.", W / 2, 235);
+
+      // Vision from your past life — deterministic based on death count
+      ctx.font = "italic 14px 'Courier New',monospace";
+      const vision = DEATH_VISIONS[(deaths - 1) % DEATH_VISIONS.length];
+      ctx.fillText("A memory surfaces:", W / 2, 300);
       ctx.font = "italic 16px 'Courier New',monospace";
-      ctx.fillText("You drift. The darkness takes shape.", W / 2, H / 2 + 30);
-      ctx.fillText("But your grave remembers you.", W / 2, H / 2 + 55);
+      ctx.fillText(`"${vision}"`, W / 2, 330);
+
       ctx.font = "14px 'Courier New',monospace";
-      ctx.fillText(`Souls guided: ${guided}  |  Steps: ${steps}`, W / 2, H / 2 + 110);
-      ctx.fillText(`Deaths: ${deaths}`, W / 2, H / 2 + 135);
+      ctx.fillText("The darkness takes shape around you.", W / 2, 400);
+      ctx.fillText("But your grave remembers.", W / 2, 424);
+
+      drawDivider(ctx, 470, 100, W - 100);
+      ctx.fillText(`Souls guided: ${guided}`, W / 2, 500);
+      ctx.fillText(`Steps taken: ${steps}`, W / 2, 524);
+      ctx.fillText(`Times fallen: ${deaths}`, W / 2, 548);
+
       ctx.font = "bold 16px 'Courier New',monospace";
-      ctx.fillText("[ ENTER to wake again ]", W / 2, H / 2 + 190);
+      ctx.fillText("[ ENTER to wake again ]", W / 2, 620);
       ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; ctx.fillStyle = BLK;
     }
 
@@ -1800,13 +1879,25 @@ function SoulSearcher() {
     const newRoom = generateRoom(newRX, newRY, area, seed);
     setRoom(newRoom);
     setPlX(entryX); setPlY(entryY);
-    setVisited(v => cappedSet(v, `${newRX},${newRY}`, 100));
-    // Cache room metadata for minimap (lightweight — just booleans)
     const key = `${newRX},${newRY}`;
+    const isFirstVisit = !visited.has(key);
+    setVisited(v => cappedSet(v, key, 100));
+    // Cache room metadata for minimap
     const hasShrine = newRoom.entities.some(e => e.type === "shrine");
     const hasDemon = newRoom.entities.some(e => e.type === "demon");
+    const hasInscription = newRoom.entities.some(e => e.type === "inscription");
     setRoomInfo(ri => { const n = { ...ri, [key]: { s: hasShrine, d: hasDemon } }; const keys = Object.keys(n); if (keys.length > 100) { delete n[keys[0]]; } return n; });
-    setMsg(area === 1 ? pick(AMBIENT1) : pick(AMBIENT2));
+    // First visit: atmospheric discovery. Revisit: memory.
+    if (isFirstVisit) {
+      const demonCount = newRoom.entities.filter(e => e.type === "demon").length;
+      if (demonCount >= 2) setMsg("The air is thick. More than one presence here.");
+      else if (hasDemon) setMsg("Something watches from the shadows.");
+      else if (hasShrine) setMsg("A shrine stands in the distance. Refuge.");
+      else if (hasInscription) setMsg("Something carved in stone catches your eye.");
+      else setMsg(area === 1 ? pick(AMBIENT1) : pick(AMBIENT2));
+    } else {
+      setMsg(pick(["You've been here before.", "This place remembers you.", "Familiar ground."]));
+    }
   }, [area, seed]);
 
   // ── Input ──────────────────────────────────────────────────
@@ -1891,10 +1982,18 @@ function SoulSearcher() {
         if (result.ok) {
           setBanished(b => cappedSet(b, enc.id, 200));
           if (dem.boss) { setBossTrophies(tr => [...tr, { name: dem.name, sprite: enc.subtype }]); setVictory(true); }
-          if (!loreFrags.includes(dem.lore)) { setLoreFrags(f => [...f, dem.lore]); setLoreN(l => l + 1); }
-          if (Math.random() < 0.3) setPotions(p => p + 1);
-          setMsg(`The ${dem.name} disperses.`);
-        } else setMsg(`The ${dem.name} remains.`);
+          const newLore = !loreFrags.includes(dem.lore);
+          if (newLore) { setLoreFrags(f => [...f, dem.lore]); setLoreN(l => l + 1); }
+          const gotPotion = Math.random() < 0.3;
+          if (gotPotion) setPotions(p => p + 1);
+          // Varied success messages
+          let successMsg = pick([`${dem.name} disperses.`, `${dem.name} fades.`, `The air clears.`]);
+          if (newLore) successMsg += " A truth revealed.";
+          if (gotPotion) successMsg += " A potion left behind.";
+          setMsg(successMsg);
+        } else {
+          setMsg(pick([`${dem.name} holds.`, `${dem.name} remains.`, `Not enough. It endures.`, `The presence persists.`]));
+        }
         setJournal(j => { const ex = j.find(x => x.id === enc.id); if (ex) return j.map(x => x.id === enc.id ? { ...x, attempts: (x.attempts || 1) + 1, note: `${key}. ${result.ok ? "Yielded." : "Held."}` } : x); const nj = [...j, { id: enc.id, name: dem.name, note: `${key}. ${result.ok ? "Yielded." : "Held."}`, attempts: 1 }]; return nj.length > 20 ? nj.slice(nj.length - 20) : nj; });
       } return;
     }
@@ -1922,7 +2021,11 @@ function SoulSearcher() {
 
         const adj = room.entities.find(en => !banished.has(en.id) && Math.abs(en.x - plX) <= 1 && Math.abs(en.y - plY) <= 1 && !(en.x === plX && en.y === plY));
         if (adj) {
-          if (adj.type === "demon") { setEnc(adj); setEncCh(0); setEncR(null); setEncG(pick(DEMONS[adj.subtype].greetings)); setGs("encounter"); }
+          if (adj.type === "demon") {
+            const dem = DEMONS[adj.subtype];
+            const greeting = getDemonGreeting({ ...dem, key: adj.subtype }, resolve, tend);
+            setEnc(adj); setEncCh(0); setEncR(null); setEncG(greeting); setGs("encounter");
+          }
           else if (adj.type === "soul") {
             const whisper = getW();
             setMsg(`A soul whispers: "${whisper}"`);
@@ -1945,7 +2048,19 @@ function SoulSearcher() {
               setHeld(0);
             } else setMsg(pick(["The shrine hums. Bring souls.", "Stone and silence. It waits.", "The shrine is patient."]));
           }
-          else if (adj.type === "keeper") { const state = { t: keeperT, l: loreN, g: guided, a: area, b: bossTrophies.length }; const line = [...KEEPER].reverse().find(l => l.c(state)); if (line) { setKeeperMsg(line.text); setKeeperT(t => t + 1); } }
+          else if (adj.type === "keeper") {
+            const state = { t: keeperT, l: loreN, g: guided, a: area, b: bossTrophies.length };
+            const line = [...KEEPER].reverse().find(l => l.c(state));
+            if (line) {
+              // Keeper blessing at milestones: guided 5+ souls, 3+ lore, entering area 2
+              let blessing = "";
+              if (guided >= 5 && blessings === 0) { setBlessings(1); setResolve(r => Math.min(100, r + 20)); blessing = "\n\nThe Keeper touches your hand. Warmth flows. +20 resolve."; }
+              else if (loreN >= 3 && blessings === 1) { setBlessings(2); setPotions(p => p + 2); blessing = "\n\nThe Keeper reaches into his robes. Two potions. 'You'll need these.'"; }
+              else if (area === 2 && blessings === 2) { setBlessings(3); setResolve(r => Math.min(100, r + 30)); blessing = "\n\nThe Keeper grips your shoulder. 'All my strength. Take it.' +30 resolve."; }
+              setKeeperMsg(line.text + blessing);
+              setKeeperT(t => t + 1);
+            }
+          }
           else if (adj.type === "inscription") {
             const insIdx = parseInt(adj.subtype) || 0;
             const text = INSCRIPTIONS[insIdx % INSCRIPTIONS.length];
@@ -1986,6 +2101,8 @@ function SoulSearcher() {
               else if (near.type === "shrine") setMsg("A shrine. Stone and silence.");
               else if (near.type === "inscription") setMsg("Carved stone. Something is written.");
               else if (near.type === "gate") setMsg(gateOpen ? "The gate stands open." : "A sealed gate pulses.");
+            } else if (held >= 3 && Math.random() < 0.12) {
+              setMsg(pick(SOUL_AMBIENT));
             } else if (Math.random() < 0.06) setMsg(pick(area === 1 ? AMBIENT1 : AMBIENT2));
           }
         } else if (tile === 2) setMsg("Dark water.");
