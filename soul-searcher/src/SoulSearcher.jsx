@@ -190,11 +190,11 @@ const SHARD_LOCS = [
   { rx: 0, ry: 2, id: "shard_4", lx: 12, ly: 3, sx: 2, sy: 11 },
 ];
 const SHARD_PICKUP_LINES = [
-  "1/5 - A quiet star wakes.",
-  "2/5 - The dark learns its name.",
-  "3/5 - Two roads remember one sky.",
-  "4/5 - The rift begins to sing.",
-  "5/5 - Return to the Watcher.",
+  "I. A star wakes beneath the ice.",
+  "II. The dark learns a name it cannot say.",
+  "III. Two roads remember one sky.",
+  "IV. Something below begins to sing.",
+  "V. Bring what is whole to the one who waits.",
 ];
 const TOTAL_VOID_SHARDS = 5;
 const VOID_SHARD_LOCS = [
@@ -205,11 +205,11 @@ const VOID_SHARD_LOCS = [
   { rx: 2, ry: 3, id: "void_4" },
 ];
 const VOID_PICKUP_LINES = [
-  "1/5 \u2014 The echo answers.",
-  "2/5 \u2014 Deep roots find deep water.",
-  "3/5 \u2014 The mirror cracks, but does not break.",
-  "4/5 \u2014 Even silence has a shape.",
-  "5/5 \u2014 Return to the Watcher. The final seam awaits.",
+  "I. The deep answers in its own voice.",
+  "II. Roots find water that does not reflect.",
+  "III. The glass cracks but will not part.",
+  "IV. Silence takes a shape. You recognize it.",
+  "V. The last seam is near. So is something else.",
 ];
 const TOTAL_ECHO_SHARDS = 5;
 const ECHO_SHARD_LOCS = [
@@ -220,11 +220,11 @@ const ECHO_SHARD_LOCS = [
   { rx: 3, ry: -2, id: "echo_4" },
 ];
 const ECHO_PICKUP_LINES = [
-  "1/5 \u2014 The reflection speaks.",
-  "2/5 \u2014 What moves forward, moves back.",
-  "3/5 \u2014 Two paths. One step.",
-  "4/5 \u2014 The mirror remembers your name.",
-  "5/5 \u2014 Return to the Watcher. Let the reflection rest.",
+  "I. A voice speaks your line before you.",
+  "II. What you did, undoes. What you undid, does.",
+  "III. Two paths. One step. No witness.",
+  "IV. The mirror says the name you had forgotten.",
+  "V. The reflection lowers its hand. You lower yours.",
 ];
 const isBlockingEntity = e => e.type === "npc";
 
@@ -304,13 +304,13 @@ function getTutorialRoom(rx, ry) {
   };
   if (rx === 1 && ry === 0) return {
     light: { tiles: parseRoom(wallCol(9)),
-      entities: [{ id: "sign_1L", type: "sign", sprite: "sign", x: 3, y: 7, text: "Press 1 to split Light for five steps." }] },
+      entities: [{ id: "sign_1L", type: "sign", sprite: "sign", x: 3, y: 7, text: "Split the light. Five breaths before the thread pulls taut." }] },
     shadow: { tiles: parseRoom(emptyRoom()), entities: [] }
   };
   if (rx === 2 && ry === 0) return {
     light: { tiles: parseRoom(emptyRoom()), entities: [] },
     shadow: { tiles: parseRoom(wallCol(9)),
-      entities: [{ id: "sign_2S", type: "sign", sprite: "sign", x: 3, y: 7, text: "Press 2 to split Shadow for five steps." }] }
+      entities: [{ id: "sign_2S", type: "sign", sprite: "sign", x: 3, y: 7, text: "Split the dark. Five breaths. No more." }] }
   };
   if (rx === 3 && ry === 0) return {
     light: { tiles: parseRoom(wallCol(10)), entities: [] },
@@ -678,145 +678,134 @@ function getDialogue(id, shardsSet, victory, chapter, voidShardsSet, echoShardsS
   const ec = echoShardsSet ? echoShardsSet.size : 0;
   const hintFor = (locs, collected) => {
     const uncol = locs.filter(s => !collected.has(s.id));
-    return "Echoes call from: " + uncol.map(s => {
+    return "Pieces wait in the " + uncol.map(s => {
       let d = "";
       if (s.ry < 0) d += "north"; if (s.ry > 0) d += "south";
       if (s.rx < 0) d += (d ? "-" : "") + "west"; if (s.rx > 0) d += (d ? "-" : "") + "east";
-      return d || "nearby";
+      return d || "near";
     }).join(", ") + ".";
   };
   if (id === "watcher") {
     // Chapter 3 dialogue
     if (chapter >= 3) {
       if (victory) return [
-        "Every rift is sealed. Every mirror stilled.",
-        "You walked forward and backward at once.",
-        "You are no longer Riftbound. You are whole.",
+        "Fifteen pieces. One figure. No name.",
+        "I will not watch you from here again.",
+        "Whatever you are now \u2014 walk.",
       ];
       if (ec >= TOTAL_ECHO_SHARDS) return [
-        "All echo shards answer your reflection.",
-        "Come near. Let the mirror finally rest.",
+        "Come stand where both of you can see.",
+        "The mirror is listening.",
       ];
       const eHint = hintFor(ECHO_SHARD_LOCS, echoShardsSet);
       if (ec >= 3) return [
-        `${ec}/${TOTAL_ECHO_SHARDS} echo shards gathered.`,
-        "The mirror bends but does not break.",
-        "Step onto the eye. Let inversion guide you.",
+        "You have stopped being two things.",
+        "You have not yet become one.",
+        "This is where most travelers end.",
         eHint,
       ];
       if (ec >= 1) return [
-        `${ec}/${TOTAL_ECHO_SHARDS} echo shards gathered.`,
-        "The reflection learns your name.",
-        "What moves forward, moves back. Trust the mirror.",
+        "The reflection has begun to answer.",
+        "I cannot tell yours from mine anymore.",
         eHint,
       ];
       return [
-        "The void is mended, but a reflection remains.",
-        "Five echo shards shimmer in the mirrored dark.",
-        "Seek the eye tiles. Step on one to enter mirror mode.",
-        "In the mirror, your shadow moves opposite to you.",
-        "Up becomes down. Left becomes right.",
-        "Use this to reach what normal steps cannot.",
+        "There is a place where forward is also back.",
+        "Step onto the eye. The eye will look at you.",
+        "Your shadow will walk against you. Do not be afraid of it.",
+        "It is only what you have always been doing, made visible.",
         eHint,
       ];
     }
     // Chapter 2 dialogue
     if (chapter >= 2) {
       if (victory) return [
-        "The deep rift closes at last.",
-        "Light and shadow no longer war. They breathe as one.",
-        "You are no longer Riftbound. You are whole.",
-        "Walk on. The worlds remember your name.",
+        "Two rifts sealed. A mirror remains.",
+        "I had hoped you would not find it.",
+        "I am not sure which of us is on its other side.",
       ];
       if (vc >= TOTAL_VOID_SHARDS) return [
-        "All void shards tremble in your wake.",
-        "Come near. Let the deepest wound finally heal.",
+        "The deep answers. Return to me.",
+        "Do not look at it for too long.",
       ];
       const vHint = hintFor(VOID_SHARD_LOCS, voidShardsSet);
       if (vc >= 3) return [
-        `${vc}/${TOTAL_VOID_SHARDS} void shards gathered.`,
-        "The deep rift fights you, but you know its language now.",
-        "Push further. The hardest locks guard the final truth.",
+        "Some of the walls are not walls.",
+        "Some of the locks are kind. Most are not.",
         vHint,
       ];
       if (vc >= 1) return [
-        `${vc}/${TOTAL_VOID_SHARDS} void shards gathered.`,
-        "The deeper rift twists harder than the surface.",
-        "Walls within walls. But you have done this before.",
+        "You remember the first time you split. Hold that memory.",
+        "Down here it is the only warm thing.",
         vHint,
       ];
       return [
-        "The surface rift is mended, but the wound runs deeper.",
-        "Five void shards echo in the dark below.",
-        "They are farther. The paths are crueler.",
-        "But you carry the light of five mended stars.",
-        "Find them. Push them home. End this.",
+        "Below the rift there is another rift.",
+        "Below that I will not say.",
+        "Five shards in the dark below. They do not want you.",
+        "They have been alone a long time.",
         vHint,
       ];
     }
     // Chapter 1 dialogue
     if (victory) return [
-      "The surface rift mends\u2026 but something stirs beneath.",
-      "A deeper fracture. Older. Hungrier.",
-      "Five void shards call from the deep.",
-      "You must go further, Riftbound.",
+      "The seam is stitched. The wound is not.",
+      "There is a deeper cut. I did not want to tell you.",
+      "I still do not.",
     ];
     if (sc >= TOTAL_SHARDS) return [
-      "All five shards answer your step.",
-      "Come near. Let the seam remember how to close.",
+      "Five. Enough for a hand to close.",
+      "Come here. Stand where I stand.",
     ];
     const uncol = SHARD_LOCS.filter(s => !shardsSet.has(s.id));
     const dirs = uncol.map(s => {
       let d = "";
       if (s.ry < 0) d += "north"; if (s.ry > 0) d += "south";
       if (s.rx < 0) d += (d ? "-" : "") + "west"; if (s.rx > 0) d += (d ? "-" : "") + "east";
-      return d || "nearby";
+      return d || "near";
     });
-    const hint = "The broken stars call from: " + dirs.join(", ") + ".";
+    const hint = "Pieces wait in the " + dirs.join(", ") + ".";
     if (sc >= 3) return [
-      `${sc}/${TOTAL_SHARDS} shards mended.`,
-      "The dark no longer hunts the light. It walks beside it.",
-      "Do not fear the tether. It is proof you can return.",
+      "You are nearly a shape again.",
+      "I will not say what. Names are for the finished.",
       hint,
     ];
     if (sc >= 1) return [
-      `${sc}/${TOTAL_SHARDS} shards mended.`,
-      "Each shard remembers a shape you have not yet become.",
-      "Split, push, return. Even the lost can be guided home.",
+      "One piece remembers. The others will not take long.",
+      "Do not call them back. They were never lost.",
       hint,
     ];
     return [
-      "Little traveler, you cast two bodies and one will.",
-      "Light is not mercy. Shadow is not sin. Both are doors.",
-      "Each world holds half of what was broken.",
-      "Walk into a half-shard to push it one tile.",
-      "Align both halves on the same square, then step onto them as one.",
-      "Press 1 to loose your Light self for five steps.",
-      "Press 2 to loose your Shadow self for five steps.",
-      "When the tether empties, the wandering self returns.",
+      "You came as two. Most do not notice.",
+      "One half walks in daylight. One half in its absence.",
+      "Neither is the true one.",
+      "Something was broken before the world had a name for breaking.",
+      "Its pieces rest where both halves must meet.",
+      "Go. Press yourself against what resists you.",
+      "The thread will hold. It always has.",
       hint,
     ];
   }
   if (id === "sage") {
     if (chapter >= 2) {
       if (vc >= TOTAL_VOID_SHARDS) return [
-        "The void answers you now.",
-        "Return to the Watcher. Let the deep silence become whole.",
+        "The void has taken your measure.",
+        "It finds you sufficient. I am sorry.",
       ];
       return [
-        "The deeper rift bends the rules you knew.",
-        "Patience still. Precision more.",
-        `${vc}/${TOTAL_VOID_SHARDS} void shards carry your echo.`,
+        "The deep bends the rule you learned above.",
+        "Patience was the first lesson. Precision is the second.",
+        "The third I will not teach you.",
       ];
     }
     if (sc >= TOTAL_SHARDS) return [
-      "The last bell has rung.",
-      "Return to the Watcher. Let the silence become whole.",
+      "I heard the last bell. So did the things that remember bells.",
+      "Go to her. Do not linger in the doorway.",
     ];
     return [
-      "A wall is only a question asked in stone.",
-      "Answer with patience. Push only what can be brought back.",
-      `${sc}/${TOTAL_SHARDS} shards carry your name.`,
+      "A wall is a question the stone has been asking a long time.",
+      "It does not expect to be answered.",
+      "Push only what you can bring back.",
     ];
   }
   return ["..."];
@@ -879,14 +868,21 @@ export default function SoulSearcher() {
 
     if (gs === "intro") {
       ctx.fillStyle = BLK; ctx.fillRect(0, 0, W, H); ctx.fillStyle = WHT;
-      ctx.font = "bold 32px 'Courier New',monospace";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("DIPTYCH", W / 2, H / 2 - 90);
-      ctx.font = "italic 14px 'Courier New',monospace";
-      ctx.fillText("To be whole, you must first be two.", W / 2, H / 2 - 40);
-      ds(ctx, "player", W / 2 - 12, H / 2 + 30);
+      // Title
+      ctx.font = "bold 36px 'Courier New',monospace";
+      ctx.fillText("DIPTYCH", W / 2, H / 2 - 120);
+      // Dictionary-style definition
+      ctx.font = "italic 13px 'Courier New',monospace";
+      ctx.fillText("/\u02C8diptik/  noun", W / 2, H / 2 - 80);
+      ctx.font = "12px 'Courier New',monospace";
+      ctx.fillText("An artwork made of two related panels", W / 2, H / 2 - 50);
+      ctx.fillText("that are meant to be viewed together", W / 2, H / 2 - 32);
+      ctx.fillText("as one piece.", W / 2, H / 2 - 14);
+      // Player sprite + prompt
+      ds(ctx, "player", W / 2 - 12, H / 2 + 40);
       ctx.font = "14px 'Courier New',monospace";
-      ctx.fillText("[ ENTER ]", W / 2, H / 2 + 110);
+      ctx.fillText("[ ENTER ]", W / 2, H / 2 + 120);
       ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; return;
     }
 
@@ -895,53 +891,49 @@ export default function SoulSearcher() {
       ctx.font = "bold 20px 'Courier New',monospace";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       if (chapter >= 3) {
-        ctx.fillText("Every rift is sealed.", W / 2, 180);
+        ctx.fillText("Fifteen pieces returned.", W / 2, 180);
         ctx.font = "16px 'Courier New',monospace";
-        ctx.fillText("Fifteen shards. Whole.", W / 2, 230);
-        ctx.fillText("The mirror, the void, the light.", W / 2, 270);
-        ctx.fillText("All one.", W / 2, 300);
-        ds(ctx, "player", W / 2 - 36, 350);
-        ctx.fillStyle = BLK; ctx.fillRect(W / 2 + 4, 350, TILE, TILE);
-        ctx.fillStyle = WHT; ds(ctx, "player", W / 2 + 4, 350);
-        ctx.font = "italic 14px 'Courier New',monospace";
-        ctx.fillText("You are no longer Riftbound.", W / 2, 430);
-        ctx.fillText("You are whole.", W / 2, 460);
+        ctx.fillText("One figure stands on the hinge.", W / 2, 230);
+        ctx.fillText("The panels close.", W / 2, 270);
+        ds(ctx, "player", W / 2 - 36, 330);
+        ctx.fillStyle = BLK; ctx.fillRect(W / 2 + 4, 330, TILE, TILE);
+        ctx.fillStyle = WHT; ds(ctx, "player", W / 2 + 4, 330);
+        ctx.font = "italic 16px 'Courier New',monospace";
+        ctx.fillText("\u2014 walk \u2014", W / 2, 420);
         ctx.font = "12px 'Courier New',monospace";
-        ctx.fillText(`${steps} steps \u00b7 ${visited.size} rooms`, W / 2, 520);
+        ctx.fillText(`${steps} steps \u00b7 ${visited.size} rooms`, W / 2, 500);
         ctx.font = "14px 'Courier New',monospace";
-        ctx.fillText("[ ENTER to explore ]", W / 2, 570);
+        ctx.fillText("[ ENTER ]", W / 2, 570);
       } else if (chapter === 2) {
-        ctx.fillText("The void is sealed.", W / 2, 180);
+        ctx.fillText("Two seams sewn.", W / 2, 180);
         ctx.font = "16px 'Courier New',monospace";
-        ctx.fillText("But a reflection stirs\u2026", W / 2, 240);
-        ctx.fillText("What moves forward, moves back.", W / 2, 280);
-        ds(ctx, "player", W / 2 - 36, 340);
-        ctx.fillStyle = BLK; ctx.fillRect(W / 2 + 4, 340, TILE, TILE);
-        ctx.fillStyle = WHT; ds(ctx, "player", W / 2 + 4, 340);
-        ctx.font = "bold 16px 'Courier New',monospace";
-        ctx.fillText("Chapter Three", W / 2, 420);
-        ctx.font = "italic 14px 'Courier New',monospace";
-        ctx.fillText("The Mirror", W / 2, 450);
+        ctx.fillText("A third is watching.", W / 2, 240);
+        ds(ctx, "player", W / 2 - 36, 320);
+        ctx.fillStyle = BLK; ctx.fillRect(W / 2 + 4, 320, TILE, TILE);
+        ctx.fillStyle = WHT; ds(ctx, "player", W / 2 + 4, 320);
+        ctx.font = "bold 14px 'Courier New',monospace";
+        ctx.fillText("Chapter III", W / 2, 420);
+        ctx.font = "italic 16px 'Courier New',monospace";
+        ctx.fillText("THE HINGE", W / 2, 450);
         ctx.font = "12px 'Courier New',monospace";
         ctx.fillText(`${steps} steps \u00b7 ${visited.size} rooms`, W / 2, 510);
         ctx.font = "14px 'Courier New',monospace";
-        ctx.fillText("[ ENTER to continue ]", W / 2, 570);
+        ctx.fillText("[ ENTER ]", W / 2, 570);
       } else {
-        ctx.fillText("The surface rift closes.", W / 2, 180);
+        ctx.fillText("The surface closes.", W / 2, 180);
         ctx.font = "16px 'Courier New',monospace";
-        ctx.fillText("Five shards. Mended.", W / 2, 240);
-        ctx.fillText("But something stirs beneath\u2026", W / 2, 280);
-        ds(ctx, "player", W / 2 - 36, 340);
-        ctx.fillStyle = BLK; ctx.fillRect(W / 2 + 4, 340, TILE, TILE);
-        ctx.fillStyle = WHT; ds(ctx, "player", W / 2 + 4, 340);
-        ctx.font = "bold 16px 'Courier New',monospace";
-        ctx.fillText("Chapter Two", W / 2, 420);
-        ctx.font = "italic 14px 'Courier New',monospace";
-        ctx.fillText("The Deeper Rift", W / 2, 450);
+        ctx.fillText("The deep opens its eye.", W / 2, 240);
+        ds(ctx, "player", W / 2 - 36, 320);
+        ctx.fillStyle = BLK; ctx.fillRect(W / 2 + 4, 320, TILE, TILE);
+        ctx.fillStyle = WHT; ds(ctx, "player", W / 2 + 4, 320);
+        ctx.font = "bold 14px 'Courier New',monospace";
+        ctx.fillText("Chapter II", W / 2, 420);
+        ctx.font = "italic 16px 'Courier New',monospace";
+        ctx.fillText("THE WOUND BENEATH", W / 2, 450);
         ctx.font = "12px 'Courier New',monospace";
         ctx.fillText(`${steps} steps \u00b7 ${visited.size} rooms`, W / 2, 510);
         ctx.font = "14px 'Courier New',monospace";
-        ctx.fillText("[ ENTER to continue ]", W / 2, 570);
+        ctx.fillText("[ ENTER ]", W / 2, 570);
       }
       ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; return;
     }
@@ -1231,7 +1223,7 @@ export default function SoulSearcher() {
       ctx.strokeRect(bx2 + 3, by2 + 3, bw2 - 6, bh2 - 6);
       ds(ctx, "shard_merged", W / 2 - 12, by2 + 15);
       ctx.font = "bold 16px 'Courier New',monospace"; ctx.textAlign = "center";
-      ctx.fillText("SHARD MENDED", W / 2, by2 + 65);
+      ctx.fillText("A PIECE RETURNS", W / 2, by2 + 65);
       ctx.font = "14px 'Courier New',monospace";
       ctx.fillText(shardMsg, W / 2, by2 + 95);
       ctx.font = "11px 'Courier New',monospace";
@@ -1246,34 +1238,39 @@ export default function SoulSearcher() {
       ctx.strokeRect(bx2 + 3, by2 + 3, bw2 - 6, bh2 - 6);
       ctx.font = "bold 18px 'Courier New',monospace"; ctx.textAlign = "center";
       if (caughtMsg === "dead") {
-        ctx.fillText("THE RIFT CONSUMES YOU", W / 2, by2 + 45);
-        ctx.font = "14px 'Courier New',monospace";
-        ctx.fillText("All hearts lost.", W / 2, by2 + 80);
-        ctx.fillText("The shards scatter.", W / 2, by2 + 105);
-        ctx.fillText("You must begin again.", W / 2, by2 + 130);
+        ctx.fillText("THE HINGE OPENS", W / 2, by2 + 45);
+        ctx.font = "13px 'Courier New',monospace";
+        ctx.fillText("You fall out of yourself.", W / 2, by2 + 80);
+        ctx.fillText("The pieces return to where", W / 2, by2 + 102);
+        ctx.fillText("they were kept.", W / 2, by2 + 120);
+        ctx.font = "italic 12px 'Courier New',monospace";
+        ctx.fillText("Try again, if you are still who you were.", W / 2, by2 + 145);
       } else {
         ds(ctx, "ghoul", W / 2 - 12, by2 + 20);
         const lightLines = [
-          "The light blinds you.",
-          "Burned by brilliance.",
-          "The light finds no mercy.",
-          "Seared by radiance.",
-          "Too bright. Too fast.",
-          "The light does not forgive.",
-          "You looked too long.",
+          "The light remembers you.",
+          "You were not meant to be seen this long.",
+          "It does not burn. It reads you.",
+          "Something in the brightness had a name for you.",
+          "The light was never empty.",
+          "A white silence closes.",
+          "You were the shadow it needed.",
         ];
         const shadowLines = [
-          "The darkness consumes you.",
-          "The shadows pull you under.",
-          "Dragged into the dark.",
-          "Gone without a trace.",
-          "The dark was waiting.",
-          "You never saw it coming.",
-          "The void takes hold.",
+          "The dark leans closer.",
+          "Something without a mouth says your name.",
+          "The black was not a color. It was a waiting.",
+          "You feel recognized. It is worse than being caught.",
+          "The shadow makes room for another shadow.",
+          "A cold patience touches you.",
+          "What you feared was kind compared to this.",
         ];
         const lines = caughtMsg === "light" ? lightLines : shadowLines;
-        ctx.font = "bold 14px 'Courier New',monospace";
-        ctx.fillText(lines[steps % lines.length], W / 2, by2 + 85);
+        ctx.font = "bold 12px 'Courier New',monospace";
+        // Wrap long lines manually
+        const line = lines[steps % lines.length];
+        const wrapped = wrap(ctx, line, bw2 - 40);
+        wrapped.forEach((l, i) => ctx.fillText(l, W / 2, by2 + 75 + i * 18));
       }
       // Draw remaining hearts
       const hx0 = W / 2 - MAX_HEARTS * 7;
@@ -1376,32 +1373,32 @@ export default function SoulSearcher() {
           setHp(MAX_HEARTS);
           if (chapter >= 3) {
             setEchoShards(new Set());
-            setMsg("The echoes scatter. Begin again.");
+            setMsg("The reflections forget you. Begin again.");
           } else if (chapter >= 2) {
             setVoidShards(new Set());
-            setMsg("The void reclaims its shards. Begin again.");
+            setMsg("The deep takes back what it lent. Begin again.");
           } else {
             setShards(new Set());
-            setMsg("The shards scatter. Begin again.");
+            setMsg("The pieces scatter into the dark. Begin again.");
           }
         } else {
-          setMsg("You wake at the Watcher's side.");
+          setMsg("You wake where she waits. She does not look up.");
         }
       }
       return;
     }
 
     if (gs === "intro") {
-      if (key === "Enter") { setGs("play"); setMsg("Talk to the Watcher. Split, push, mend."); }
+      if (key === "Enter") { setGs("play"); setMsg("Find the one who waits. She will know you are two."); }
       // DEV: press 0 to skip to Chapter 2, press 9 to skip to Chapter 3
       if (key === "0") {
         setShards(new Set(["shard_0","shard_1","shard_2","shard_3","shard_4"]));
-        setChapter(2); setGs("play"); setMsg("Chapter 2. Five void shards await.");
+        setChapter(2); setGs("play"); setMsg("The deep opens its eye. Five pieces in the dark.");
       }
       if (key === "9") {
         setShards(new Set(["shard_0","shard_1","shard_2","shard_3","shard_4"]));
         setVoidShards(new Set(["void_0","void_1","void_2","void_3","void_4"]));
-        setChapter(3); setGs("play"); setMsg("Chapter 3. Five echo shards await.");
+        setChapter(3); setGs("play"); setMsg("The hinge watches. Five reflections wait.");
       }
       return;
     }
@@ -1409,12 +1406,12 @@ export default function SoulSearcher() {
       if (key === "Enter") {
         if (chapter === 1) {
           setChapter(2); setVictory(false); setGs("play");
-          setMsg("The deeper rift opens. Five void shards await.");
+          setMsg("The deep opens its eye. Five pieces in the dark.");
         } else if (chapter === 2) {
           setChapter(3); setVictory(false); setGs("play");
-          setMsg("The mirror fractures. Five echo shards await.");
+          setMsg("The hinge watches. Five reflections wait.");
         } else {
-          setGs("play"); setMsg("Free to explore. All rifts are sealed.");
+          setGs("play"); setMsg("The panels close. Walk where you will.");
         }
       }
       return;
@@ -1439,7 +1436,7 @@ export default function SoulSearcher() {
 
     if (gs !== "play" || !lightWorld || !shadowWorld) return;
 
-    const snapSplit = (text = "The tether snaps back.") => {
+    const snapSplit = (text = "The thread pulls you home.") => {
       if (!splitMode || !splitAnchor) return;
       if (splitMode === "light") setLightPos(splitAnchor);
       else setShadowPos(splitAnchor);
@@ -1471,7 +1468,7 @@ export default function SoulSearcher() {
         const nx = soloPos.x + dx, ny = soloPos.y + dy;
 
         if (nx < 0 || nx >= GRID || ny < 0 || ny >= GRID) {
-          setMsg("The tether holds.");
+          setMsg("The thread holds. It will not let you go there.");
           return;
         }
 
@@ -1492,7 +1489,7 @@ export default function SoulSearcher() {
         }
 
         if (!ok) {
-          setMsg(soloLight ? "Blocked above." : "Blocked below.");
+          setMsg(soloLight ? "The upper world refuses you." : "The lower world refuses you.");
           return;
         }
 
@@ -1512,11 +1509,11 @@ export default function SoulSearcher() {
           ? shadowWorld.entities.find(e => e.type === "half_shadow")
           : lightWorld.entities.find(e => e.type === "half_light");
         if (movedHalf.x === otherHalf?.x && movedHalf.y === otherHalf?.y) {
-          setMsg("The halves resonate. Snap back to collect.");
+          setMsg("They want to be one. Let the thread return.");
         } else if (remaining <= 0) {
-          setMsg("Tether spent. Move again to snap back.");
+          setMsg("The thread is spent. One more step, and it pulls you home.");
         } else {
-          setMsg(`${soloLight ? "Light" : "Shadow"} split: ${remaining} steps.`);
+          setMsg(`${soloLight ? "Light" : "Shadow"} walks alone. ${remaining} breaths remain.`);
         }
         // Ghouls advance in the active split world only
         const newLp = soloLight ? { x: nx, y: ny } : lightPos;
@@ -1535,7 +1532,7 @@ export default function SoulSearcher() {
 
       if (lOff || sOff) {
         // Don't allow room transitions during mirror mode
-        if (mirrorSteps > 0) { setMsg("The mirror holds you here."); return; }
+        if (mirrorSteps > 0) { setMsg("The eye will not let you leave."); return; }
         let nrx = roomX, nry = roomY, ex, ey;
         if (dx === 1) { nrx++; ex = 1; ey = snap(lightPos.y); }
         else if (dx === -1) { nrx--; ex = GRID - 2; ey = snap(lightPos.y); }
@@ -1558,7 +1555,7 @@ export default function SoulSearcher() {
           // Reset door latches when entering a new room
           setLDoorsLatched(false); setSDoorsLatched(false);
           setLinkedPlates(!!room.linkedPlates);
-        } else { setMsg("The path is blocked."); }
+        } else { setMsg("The way is not yet."); }
         return;
       }
 
@@ -1635,7 +1632,7 @@ export default function SoulSearcher() {
         const nlH = lPush ? { x: nlx + dx, y: nly + dy } : (lHalf || {});
         const nsH = sPush ? { x: nsx + mdx, y: nsy + mdy } : (sHalf || {});
         if (nlH.x === nsH.x && nlH.y === nsH.y) {
-          setMsg("The halves resonate... Walk onto them!");
+          setMsg("They want to be one. Step onto them.");
         } else {
           setMsg(lPush || sPush ? "" : "");
         }
@@ -1675,21 +1672,21 @@ export default function SoulSearcher() {
               setShadowPos(mirrorAnchor);
             }
             setMirrorAnchor(null);
-            setMsg("The mirror fades. You return.");
+            setMsg("The eye closes. You return to yourself.");
           } else {
-            setMsg(`Mirror: ${rem} steps.`);
+            setMsg(`The eye is watching. ${rem} breaths remain.`);
           }
         } else if (lightWorld.tiles[nly]?.[nlx] === T.MIRROR || shadowWorld.tiles[nsy]?.[nsx] === T.MIRROR) {
           setMirrorSteps(MIRROR_STEPS);
           setMirrorAnchor({ x: nlx, y: nly });
-          setMsg(`\u25C6 MIRROR ACTIVATED \u2014 ${MIRROR_STEPS} INVERTED STEPS \u25C6`);
+          setMsg(`\u25C6 THE EYE OPENS \u2014 ${MIRROR_STEPS} INVERTED BREATHS \u25C6`);
         }
         // Ghouls advance in both worlds
         tickGhoulsAndCheck({ x: nlx, y: nly }, { x: nsx, y: nsy });
       } else {
-        if (!lOk && !sOk) setMsg("Blocked in both worlds.");
-        else if (!lOk) setMsg("Blocked above.");
-        else setMsg("Blocked below.");
+        if (!lOk && !sOk) setMsg("Both worlds refuse you.");
+        else if (!lOk) setMsg("The upper world will not yield.");
+        else setMsg("The lower world will not yield.");
       }
       return;
     }
@@ -1698,31 +1695,31 @@ export default function SoulSearcher() {
     if (key === "Escape" && mirrorSteps > 0) {
       if (mirrorAnchor) { setLightPos(mirrorAnchor); setShadowPos(mirrorAnchor); }
       setMirrorAnchor(null); setMirrorSteps(0);
-      setMsg("The mirror snaps back.");
+      setMsg("The eye closes. You return to yourself.");
       return;
     }
 
     if (key === "1") {
       if (splitMode === "light") { snapSplit(); return; }
-      if (splitMode) { setMsg("Snap back first."); return; }
+      if (splitMode) { setMsg("Finish the first walk. Then begin another."); return; }
       setSplitMode("light");
       setSplitSteps(SPLIT_STEPS);
       setSplitAnchor({ ...lightPos });
-      setMsg(`Light split: ${SPLIT_STEPS} steps.`);
+      setMsg(`Light walks alone. ${SPLIT_STEPS} breaths remain.`);
       return;
     }
     if (key === "2" || key === "j" || key === "J") {
       if (splitMode === "shadow") { snapSplit(); return; }
-      if (splitMode) { setMsg("Snap back first."); return; }
+      if (splitMode) { setMsg("Finish the first walk. Then begin another."); return; }
       setSplitMode("shadow");
       setSplitSteps(SPLIT_STEPS);
       setSplitAnchor({ ...shadowPos });
-      setMsg(`Shadow split: ${SPLIT_STEPS} steps.`);
+      setMsg(`Shadow walks alone. ${SPLIT_STEPS} breaths remain.`);
       return;
     }
 
     if (key === "Enter") {
-      if (splitMode) { setMsg("Snap back before interacting."); return; }
+      if (splitMode) { setMsg("You are two. Finish first, then speak."); return; }
       const dirs = [{ dx: 0, dy: -1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 0 }, { dx: 1, dy: 0 }];
       for (const d of dirs) {
         const ax = lightPos.x + d.dx, ay = lightPos.y + d.dy;
@@ -1742,7 +1739,7 @@ export default function SoulSearcher() {
           if (ent.type === "sign") { setMsg(ent.text || "..."); return; }
         }
       }
-      setMsg("Nothing nearby.");
+      setMsg("Nothing answers you here.");
     }
   }, [gs, lightWorld, shadowWorld, lightPos, shadowPos, splitMode, splitSteps, splitAnchor,
     dialogueLines, dialogueLine, roomX, roomY, seed, shards, shardMsg, caughtMsg, victory, chapter, voidShards, echoShards, mirrorSteps, mirrorAnchor, lDoorsLatched, sDoorsLatched, linkedPlates,
@@ -1754,7 +1751,6 @@ export default function SoulSearcher() {
   return (
     <div tabIndex={0} autoFocus style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#121212",fontFamily:"'Courier New',monospace",outline:"none" }}>
       <div style={{ background:"#222",padding:"20px",borderRadius:"16px",boxShadow:"0 16px 48px rgba(0,0,0,0.8)",border:"1px solid #333" }}>
-        <div style={{ fontSize:"9px",color:"#555",textAlign:"center",marginBottom:"10px",letterSpacing:"5px" }}>XTEINK X4 &middot; RIFTBOUND</div>
         <canvas ref={cvs} width={W} height={H} style={{ width:W,height:H,borderRadius:"4px",imageRendering:"pixelated",border:"1px solid #444",background:WHT }} />
         <div style={{ display:"flex",justifyContent:"center",gap:"6px",marginTop:"14px",flexWrap:"wrap" }}>
           {["Split Light (1)","\u2191","\u2193","\u2190","\u2192","Split Shadow (2)","\u23CE Act"].map(l=>(
