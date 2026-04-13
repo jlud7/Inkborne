@@ -1,771 +1,25 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
+// ── Constants ───────────────────────────────────────────────────
 const W = 480, H = 800;
-const TILE = 24; // Larger tiles for more detail
-const ROOM_COLS = 18; // 18 * 24 = 432, centered with 24px margins each side
-const ROOM_ROWS = 18; // 18 * 24 = 432
-const ROOM_OX = (W - ROOM_COLS * TILE) / 2; // Left margin
-const ROOM_OY = 52; // Below header
-const ROOM_H = ROOM_ROWS * TILE;
-const HUD_TOP = ROOM_OY + ROOM_H + 4;
+const TILE = 24;
+const GRID = 15;
+const VIEW_W = GRID * TILE;
+const VIEW_H = GRID * TILE;
+const VIEW_OX = (W - VIEW_W) / 2;
+const LIGHT_OY = 24;
+const SHADOW_OY = 408;
+const STATUS_Y = 772;
 const BLK = "#000", WHT = "#f4f1e8";
-const pick = a => a[Math.floor(Math.random() * a.length)];
-// Cap a Set to maxSize — evicts oldest entries (RAM guard for ESP32-C3)
-const cappedSet = (set, val, max) => {
-  const arr = [...set, val];
-  return new Set(arr.length > max ? arr.slice(arr.length - max) : arr);
-};
+const T = { EMPTY: 0, WALL: 1, TREE: 2, WATER: 3, DOOR: 4, SWITCH: 5, MIRROR: 6 };
+const TOTAL_SHARDS = 5;
+const SPLIT_STEPS = 5;
+const DOOR_LO = 5, DOOR_HI = 9; // doorway range on each edge
+const GHOUL_DMG = 1;
+const MAX_HEARTS = 5;
+const MIRROR_STEPS = 5;
 
-// ── 24x24 Sprites ──────────────────────────────────────────────
-// Each row is 24 chars wide
-const S = {};
-
-// Helper: define sprite from compact strings
-const def = (name, rows) => { S[name] = rows; };
-
-def("player", [
-  "000000000001100000000000",
-  "000000000011110000000000",
-  "000000000111111000000000",
-  "000000001111111000000000",
-  "000000001101101000000000",
-  "000000000111110000000000",
-  "000000100111110000000000",
-  "000001100111111000000000",
-  "000001100111111100000000",
-  "000011101111111100000000",
-  "000011111111011100000000",
-  "000001111110011000110000",
-  "000001111110110001110000",
-  "000000111101110001100000",
-  "000000111101100011100000",
-  "000001111111100011000000",
-  "000001111111000000000000",
-  "000011111111000000000000",
-  "000011101111000000000000",
-  "000111001111100000000000",
-  "000110001111100000000000",
-  "001100000111100000000000",
-  "001100000011110000000000",
-  "011000000011110000000000",
-]);
-
-def("grave", [
-  "000000000001100000000000",
-  "000000000001100000000000",
-  "000000000011110000000000",
-  "000000001111111100000000",
-  "000000011100011100000000",
-  "000000011000001110000000",
-  "000001111100011111000000",
-  "000001111000001111000000",
-  "000001111001001111000000",
-  "000000011011101100000000",
-  "000000011111111100000000",
-  "000000011011101100000000",
-  "000000011001001100000000",
-  "000000001100011000000000",
-  "000000001100011000000000",
-  "000000001100011000000000",
-  "000000001100011000000000",
-  "000000001100011000000000",
-  "000000001111111000000000",
-  "000000011111111100000000",
-  "000000111111111110000000",
-  "000001111111111111000000",
-  "000011100000000111000000",
-  "000111000000000011100000",
-]);
-
-def("soul", [
-  "000000000000000000000000",
-  "000000000011100000000000",
-  "000000001111111000000000",
-  "000000011111111100000000",
-  "000000111001001110000000",
-  "000000111001001110000000",
-  "000000011111111100000000",
-  "000000011100111100000000",
-  "000000011111111000000000",
-  "000000001111111000000000",
-  "000000001111110000000000",
-  "000000000111110000000000",
-  "000000000111100000000000",
-  "000000000011100000000000",
-  "000000000011000000000000",
-  "000000000110010000000000",
-  "000000000100100000000000",
-  "000000001000010000000000",
-  "000000000001100000000000",
-  "000000010000001000000000",
-  "000000000100000000000000",
-  "000000000000010000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-]);
-
-def("shrine", [
-  "000000000001100000000000",
-  "000000000010010000000000",
-  "000000000011110000000000",
-  "000000000001100000000000",
-  "000000000011110000000000",
-  "000000000111111000000000",
-  "000000000110011000000000",
-  "000000000110011000000000",
-  "000000000110011000000000",
-  "000000000110011000000000",
-  "000000001111111100000000",
-  "000000001111111100000000",
-  "000000000110011000000000",
-  "000000000110011000000000",
-  "000000000110011000000000",
-  "000000000110011000000000",
-  "000000000110011000000000",
-  "000000001111111100000000",
-  "000000011111111110000000",
-  "000000011111111110000000",
-  "000001111111111111100000",
-  "000001111111111111100000",
-  "000111111111111111111000",
-  "000111111111111111111000",
-]);
-
-def("keeper", [
-  "000000000000000000000000",
-  "000000000011110000000000",
-  "000000000111111000000000",
-  "000000000110011000000000",
-  "000000000111111000000000",
-  "000000000011110000000000",
-  "000000000011110000000000",
-  "001100000111111000000000",
-  "001100001111111100000000",
-  "001100001111111100000000",
-  "001100011111111110000000",
-  "001110011111111110000000",
-  "001110111111111111000000",
-  "001111111101111111000000",
-  "000111111001111111100000",
-  "000011110001111111100000",
-  "000001100011111111110000",
-  "000000000111111111110000",
-  "000000001111101111110000",
-  "000000011111001111111000",
-  "000000111110000111111000",
-  "000001111100000011111100",
-  "000011111000000001111110",
-  "000111110000000000111110",
-]);
-
-def("tree", [
-  "000000000011100000000000",
-  "000000001111111000000000",
-  "000000011111111100000000",
-  "000000111110111110000000",
-  "000001111100011111000000",
-  "000011111110111111100000",
-  "000111111111111111110000",
-  "001111101111101111111000",
-  "001111100110100111111000",
-  "011111111111111111111100",
-  "011111110110111011111100",
-  "011111111111111111111100",
-  "001111111101110111111000",
-  "001111111111111111111000",
-  "000111111111111111110000",
-  "000011111111111111100000",
-  "000001111111111111000000",
-  "000000011101110100000000",
-  "000000000011100000000000",
-  "000000000011100000000000",
-  "000000000011100000000000",
-  "000000000011100000000000",
-  "000000001111111000000000",
-  "000000011100011100000000",
-]);
-
-def("deadtree", [
-  "000000000001000001000000",
-  "010000000011000011000000",
-  "011000000110000110000000",
-  "001100001100001100000000",
-  "000110001100011000100000",
-  "000011011100110001100000",
-  "000001111101100000000000",
-  "000000111111000000000000",
-  "000100011110000000000000",
-  "001100011100000000000000",
-  "000110011100000000000000",
-  "000000011000000000000000",
-  "000000011000000000000000",
-  "000000011000000000000000",
-  "000000011000000000000000",
-  "000000011000000000000000",
-  "000000011000000000000000",
-  "000000011000000000000000",
-  "000000011000000000000000",
-  "000000011000000000000000",
-  "000000011100000000000000",
-  "000000011110000000000000",
-  "000000011111000000000000",
-  "000000001110000000000000",
-]);
-
-def("rock", [
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000001110000000000",
-  "000000001111111100000000",
-  "000000011111111110000000",
-  "000001111101011111000000",
-  "000011111110111111100000",
-  "000111111111111111110000",
-  "001111110011110111111000",
-  "011111111111111111111100",
-  "011111111011011111111100",
-  "111111111111111111111110",
-  "111111111111111111111110",
-  "011111111111111111111100",
-  "010011111111111111100100",
-  "000001001110011100010000",
-]);
-
-// Demon sprites - 24x24, detailed and menacing
-def("wrathful", [
-  "011000000000000000001100",
-  "001100000000000000011000",
-  "000110000011110000110000",
-  "000011000111111001100000",
-  "000001101111111011000000",
-  "000000111111111110000000",
-  "000000111101011110000000",
-  "000000011111111100000000",
-  "000000011110111100000000",
-  "000000011111111100000000",
-  "000010011111111100100000",
-  "000111111111111111110000",
-  "001101111111111110110000",
-  "011000111111111100011000",
-  "010001111101111110001000",
-  "000011111001001111100000",
-  "000111110000000111110000",
-  "001111100000000011111000",
-  "011110000000000000111100",
-  "011100000000000000111000",
-  "111100000000000000111100",
-  "111000000000000000011100",
-  "110000000000000000001100",
-  "110000000000000000001100",
-]);
-
-def("grieving", [
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000111110000000000",
-  "000000001111111000000000",
-  "000000011111111100000000",
-  "000000011111111100000000",
-  "000001111111111110000000",
-  "000011111111111111100000",
-  "000111111111111111100000",
-  "000111111111111111110000",
-  "000011111111111111100000",
-  "000011111111111111000000",
-  "000001111111111110000000",
-  "000000111111111100000000",
-  "000000011111111000000000",
-  "000000001111110000000000",
-  "000000000100100000000000",
-  "000000000000000000000000",
-  "000000000100010000000000",
-  "000000000000000000000000",
-  "000000000010001000000000",
-  "000000000000000000000000",
-]);
-
-def("deceitful", [
-  "000000000011100000000000",
-  "000000001111110000000000",
-  "000000011101111100000000",
-  "000000111001100110000000",
-  "000001110011100111000000",
-  "000011100111001111100000",
-  "000111001111001101110000",
-  "001110011111011100111000",
-  "001100111110111100011000",
-  "011001111001111100001100",
-  "011001110001110110001100",
-  "011011100001100111001100",
-  "011011100011100111001100",
-  "001111100111000110011000",
-  "001111001110001110011000",
-  "000110001100011100110000",
-  "000111001100111001110000",
-  "000011100001110011100000",
-  "000001110011100111000000",
-  "000000111111111110000000",
-  "000000011111111100000000",
-  "000000001111111000000000",
-  "000000000111110000000000",
-  "000000000001100000000000",
-]);
-
-def("prideful", [
-  "000000010000000100000000",
-  "000000110101011000000000",
-  "000000111111111100000000",
-  "000000110111101100000000",
-  "000000011111110000000000",
-  "000000011111110000000000",
-  "000000011001100000000000",
-  "000000011111110000000000",
-  "000000001111100000000000",
-  "000000001111100000000000",
-  "001000011111111000001000",
-  "011000111111111100001100",
-  "011101111101111110111100",
-  "011111111001001111111100",
-  "001111110000000111111000",
-  "000111100000000011110000",
-  "001111000000000001111000",
-  "011110000000000000111100",
-  "111100000000000000111100",
-  "111000000000000000011100",
-  "111000000000000000011100",
-  "110000000000000000001100",
-  "110000000000000000001100",
-  "111000000000000000011100",
-]);
-
-def("forgotten", [
-  "000000000011110000000000",
-  "000000001111111000000000",
-  "000000011100011100000000",
-  "000000011000001100000000",
-  "000000011100011100000000",
-  "000000001111111000000000",
-  "000000000011100000000000",
-  "000000000111110000000000",
-  "000000001111111000000000",
-  "000000011111111100000000",
-  "000010011101101100000000",
-  "000000111100111100100000",
-  "000000111000011100000000",
-  "000100011000001000010000",
-  "000000010000001000000000",
-  "000000010000001000000000",
-  "000001000000000010000000",
-  "000000000000000000010000",
-  "000000100000010000000000",
-  "000010000000000001000000",
-  "000000000100000000000000",
-  "000000000000001000000000",
-  "000100000000000000100000",
-  "000000000000000000000000",
-]);
-
-def("hollow", [
-  "000000000111110000000000",
-  "000000011100011100000000",
-  "000000110000000110000000",
-  "000000110000000110000000",
-  "000000110000000110000000",
-  "000000011000001100000000",
-  "000000001100011000000000",
-  "000000000110110000000000",
-  "000000000110110000000000",
-  "000000001100011000000000",
-  "000000011000001100000000",
-  "000000110000000110000000",
-  "000001100000000011000000",
-  "000001100000000011000000",
-  "000001100000000011000000",
-  "000001010000000101000000",
-  "000001001000001001000000",
-  "000010001000001000100000",
-  "000010000100010000100000",
-  "000100000100010000010000",
-  "001000000010100000001000",
-  "010000000010100000000100",
-  "010000000001000000000100",
-  "010000000001000000000100",
-]);
-
-def("ancient", [
-  "000000000011110000000000",
-  "000000011111111110000000",
-  "000001110000000011100000",
-  "000011000111110000110000",
-  "000100011111111100010000",
-  "001001110000000111001000",
-  "001011000011100001101000",
-  "010010000100010000100100",
-  "010010000100010000100100",
-  "001011000000000001101000",
-  "001001100000000011001000",
-  "000100111000001110010000",
-  "000010011111111100100000",
-  "000001001111110010000000",
-  "000000110000000110000000",
-  "000001111000001111000000",
-  "000011111100111111100000",
-  "000111111111111111110000",
-  "001111111111111111111000",
-  "011111111111111111111100",
-  "111111111111111111111110",
-  "111111111111111111111110",
-  "111111111111111111111110",
-  "011111111111111111111100",
-]);
-
-def("devourer", [
-  "000000001101101100000000",
-  "000000011101101110000000",
-  "000000111000000111000000",
-  "000011111111111111110000",
-  "001111111111111111111100",
-  "011100000000000000011110",
-  "111011000000000011011110",
-  "110011100000000111001110",
-  "110001111111111110001100",
-  "110100111111111001001100",
-  "011110011111110011110000",
-  "001111001111100111100000",
-  "000111100000001111100000",
-  "000111110000011111000000",
-  "000011111000111110000000",
-  "000011111101111110000000",
-  "000111111111111111000000",
-  "001111011111101111100000",
-  "011110011011100111110000",
-  "011100110011100011111000",
-  "111001110001110001111100",
-  "110011100001111000111100",
-  "110111000000111100011100",
-  "111110000000011110011100",
-]);
-
-def("gate", [
-  "000000000001100000000000",
-  "000000000111111000000000",
-  "000000011100001110000000",
-  "000000110000000011000000",
-  "000001100001100001100000",
-  "000011000011110000110000",
-  "000110000111111000011000",
-  "001110000110011000011100",
-  "001100000000000000001100",
-  "011100000000000000001110",
-  "011110000000000000011110",
-  "011011000000000000110110",
-  "011011000000000000110110",
-  "011011000000000000110110",
-  "011011000000000000110110",
-  "011011000000000000110110",
-  "011011000000000000110110",
-  "011011000000000000110110",
-  "011011000000000000110110",
-  "011011000000000000110110",
-  "011011000000000000110110",
-  "111111100000000001111110",
-  "111111110000000011111110",
-  "111111110000000011111110",
-]);
-
-// Area 2 demon sprites
-def("ashenwalker", [
-  "000000000011100000000000",
-  "000000000111110000000000",
-  "000000001111111000000000",
-  "000000001100011000000000",
-  "000000001111111000000000",
-  "000000000111110000000000",
-  "000000000011100000000000",
-  "000000000111110000000000",
-  "000000001111111000000000",
-  "000000011111111100000000",
-  "000000111111111110000000",
-  "000001111111111111000000",
-  "000001111111111111000000",
-  "000000111111111110000000",
-  "000000011111111100000000",
-  "000000001111111000000000",
-  "000000001100011000000000",
-  "000000011100011100000000",
-  "000000111000001110000000",
-  "000001110000000111000000",
-  "100011100000000011100010",
-  "110111000000000001110110",
-  "011110000000000000111100",
-  "001100000000000000011000",
-]);
-
-def("bound", [
-  "000110000000000001100000",
-  "001001000011100010010000",
-  "010000100111110100001000",
-  "010000011111111000001000",
-  "001000111111111110010000",
-  "000101111100111111010000",
-  "000011111000011111100000",
-  "000001111000001111000000",
-  "001000111100011100001000",
-  "010100011111111000101000",
-  "010010001111110010010000",
-  "001001001111110100100000",
-  "000100101111101010000000",
-  "000010011111110100000000",
-  "000001001111101000000000",
-  "000000101111010100000000",
-  "000000011111111000000000",
-  "000000001111110000000000",
-  "000000001100110000000000",
-  "000000011000011000000000",
-  "000000110000001100000000",
-  "000001100000000110000000",
-  "000011000000000011000000",
-  "000110000000000001100000",
-]);
-
-def("rootspeaker", [
-  "000000000011100000000000",
-  "000000001111111000000000",
-  "000000011100011100000000",
-  "000000011010101100000000",
-  "000000011100011100000000",
-  "000000001111111000000000",
-  "000100000111110000010000",
-  "001110001111111000111000",
-  "011111011111111101111100",
-  "001111111111111111111000",
-  "000111111111111111110000",
-  "000011111111111111100000",
-  "000001111111111111000000",
-  "000000111111111110000000",
-  "000001111101011111000000",
-  "000011110000000111100000",
-  "000111100000000011110000",
-  "001111000000000001111000",
-  "011110000000000000111100",
-  "111100000000000000011110",
-  "111000000000000000001110",
-  "110000000000000000000110",
-  "100000000000000000000010",
-  "100000000000000000000010",
-]);
-
-def("ashmother", [
-  "000000000111110000000000",
-  "000000001111111000000000",
-  "000000011111111100000000",
-  "000000011001001100000000",
-  "000000011111111100000000",
-  "000000001111111000000000",
-  "000000000111110000000000",
-  "000000001111111000000000",
-  "000000011111111100000000",
-  "000001111111111111000000",
-  "000011111111111111100000",
-  "000111111111111111110000",
-  "001111111111111111111000",
-  "011111111111111111111100",
-  "011111111111111111111100",
-  "001111111111111111111000",
-  "000111111111111111110000",
-  "000011111111111111100000",
-  "000001111111111111000000",
-  "000000111111111110000000",
-  "000001111100011111000000",
-  "000011110000000111100000",
-  "000111100000000011110000",
-  "001111000000000001111000",
-]);
-
-// Stone inscription sprite - small rounded tablet
-def("inscription", [
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000000000000000000",
-  "000000000111111100000000",
-  "000000001111111110000000",
-  "000000011100001110000000",
-  "000000011010101110000000",
-  "000000011100001110000000",
-  "000000011010101110000000",
-  "000000011100001110000000",
-  "000000001111111110000000",
-  "000000011111111111000000",
-  "000001111111111111110000",
-  "000011111111111111111000",
-  "000001111111111111110000",
-  "000000011111111111000000",
-]);
-
-// ── Room-based world ───────────────────────────────────────────
-// World is a grid of rooms. Each room is ROOM_COLS x ROOM_ROWS tiles.
-// Player pos is local to current room.
-
-function generateRoom(rx, ry, area, seed) {
-  const rng = mulberry32(seed + rx * 1000 + ry);
-  const tiles = Array.from({ length: ROOM_ROWS }, () => Array(ROOM_COLS).fill(0));
-  const entities = [];
-  const used = new Set();
-  const dist = Math.abs(rx) + Math.abs(ry);
-
-  const treeType = area === 1 ? 1 : 4;
-
-  // Room layout variety based on deterministic hash
-  const roomType = Math.floor(rng() * 10); // 0-9
-
-  if (roomType <= 3) {
-    // Scattered trees (default)
-    const treeCount = area === 1 ? 10 + Math.floor(rng() * 8) : 5 + Math.floor(rng() * 6);
-    for (let i = 0; i < treeCount; i++) {
-      const x = Math.floor(rng() * ROOM_COLS);
-      const y = Math.floor(rng() * ROOM_ROWS);
-      if (x > 1 && y > 1 && x < ROOM_COLS - 2 && y < ROOM_ROWS - 2) tiles[y][x] = treeType;
-    }
-  } else if (roomType <= 5) {
-    // Clearing with ring of trees around edge
-    for (let i = 0; i < 24; i++) {
-      const angle = (i / 24) * Math.PI * 2;
-      const r = 6 + rng() * 2;
-      const x = Math.floor(ROOM_COLS / 2 + Math.cos(angle) * r);
-      const y = Math.floor(ROOM_ROWS / 2 + Math.sin(angle) * r);
-      if (x > 1 && y > 1 && x < ROOM_COLS - 2 && y < ROOM_ROWS - 2) tiles[y][x] = treeType;
-    }
-  } else if (roomType <= 7) {
-    // Path/corridor through dense trees
-    const horizontal = rng() < 0.5;
-    const pathY = 3 + Math.floor(rng() * (ROOM_ROWS - 6));
-    const pathX = 3 + Math.floor(rng() * (ROOM_COLS - 6));
-    const treeCount = 18 + Math.floor(rng() * 8);
-    for (let i = 0; i < treeCount; i++) {
-      const x = Math.floor(rng() * ROOM_COLS);
-      const y = Math.floor(rng() * ROOM_ROWS);
-      if (x > 1 && y > 1 && x < ROOM_COLS - 2 && y < ROOM_ROWS - 2) {
-        const onPath = horizontal ? Math.abs(y - pathY) <= 1 : Math.abs(x - pathX) <= 1;
-        if (!onPath) tiles[y][x] = treeType;
-      }
-    }
-  } else {
-    // Dense grove with small clearings
-    for (let y = 2; y < ROOM_ROWS - 2; y++) {
-      for (let x = 2; x < ROOM_COLS - 2; x++) {
-        if (rng() < 0.35) tiles[y][x] = treeType;
-      }
-    }
-    // Punch out 1-2 clearings
-    const clearings = 1 + Math.floor(rng() * 2);
-    for (let c = 0; c < clearings; c++) {
-      const cx = 4 + Math.floor(rng() * (ROOM_COLS - 8));
-      const cy = 4 + Math.floor(rng() * (ROOM_ROWS - 8));
-      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
-        if (dx * dx + dy * dy <= 5 && cy + dy > 0 && cy + dy < ROOM_ROWS - 1 && cx + dx > 0 && cx + dx < ROOM_COLS - 1)
-          tiles[cy + dy][cx + dx] = 0;
-      }
-    }
-  }
-
-  // Rocks
-  for (let i = 0; i < 2 + Math.floor(rng() * 4); i++) {
-    const x = Math.floor(rng() * ROOM_COLS);
-    const y = Math.floor(rng() * ROOM_ROWS);
-    if (tiles[y]?.[x] === 0 && x > 1 && y > 1 && x < ROOM_COLS - 2 && y < ROOM_ROWS - 2) tiles[y][x] = 3;
-  }
-
-  // Water (in some rooms, more common in area 1)
-  if (rng() < (area === 1 ? 0.3 : 0.15)) {
-    const cx = 4 + Math.floor(rng() * (ROOM_COLS - 8));
-    const cy = 4 + Math.floor(rng() * (ROOM_ROWS - 8));
-    const size = 2 + Math.floor(rng() * 2);
-    for (let dy = -size; dy <= size; dy++) for (let dx = -size; dx <= size; dx++) {
-      if (dx * dx + dy * dy <= size * size + 1 && cy + dy > 1 && cy + dy < ROOM_ROWS - 2 && cx + dx > 1 && cx + dx < ROOM_COLS - 2)
-        tiles[cy + dy][cx + dx] = 2;
-    }
-  }
-
-  // Keep edges clear for transitions (2 tiles deep)
-  for (let x = 0; x < ROOM_COLS; x++) { tiles[0][x] = 0; tiles[1][x] = 0; tiles[ROOM_ROWS - 1][x] = 0; tiles[ROOM_ROWS - 2][x] = 0; }
-  for (let y = 0; y < ROOM_ROWS; y++) { tiles[y][0] = 0; tiles[y][1] = 0; tiles[y][ROOM_COLS - 1] = 0; tiles[y][ROOM_COLS - 2] = 0; }
-
-  const placeEnt = (type, sub) => {
-    let x, y, tries = 0;
-    do { x = 2 + Math.floor(rng() * (ROOM_COLS - 4)); y = 2 + Math.floor(rng() * (ROOM_ROWS - 4)); tries++; }
-    while ((tiles[y]?.[x] !== 0 || used.has(`${x},${y}`)) && tries < 50);
-    if (tries < 50) { used.add(`${x},${y}`); entities.push({ x, y, type, subtype: sub, id: `${rx}_${ry}_${type}_${sub || ""}_${entities.length}` }); }
-  };
-
-  // Populate based on room position
-  if (rx === 0 && ry === 0) {
-    // Home room: clear a wide area around grave
-    for (let cy = -4; cy <= 4; cy++) for (let cx = -4; cx <= 4; cx++) {
-      const ty = Math.floor(ROOM_ROWS / 2) + cy, tx = Math.floor(ROOM_COLS / 2) + cx;
-      if (ty >= 0 && ty < ROOM_ROWS && tx >= 0 && tx < ROOM_COLS) tiles[ty][tx] = 0;
-    }
-    entities.push({ x: Math.floor(ROOM_COLS / 2), y: Math.floor(ROOM_ROWS / 2), type: "grave", subtype: null, id: "grave" });
-    entities.push({ x: Math.floor(ROOM_COLS / 2) + 2, y: Math.floor(ROOM_ROWS / 2) - 1, type: "keeper", subtype: null, id: "keeper" });
-    entities.push({ x: Math.floor(ROOM_COLS / 2) - 3, y: Math.floor(ROOM_ROWS / 2), type: "shrine", subtype: null, id: "shrine_home" });
-    placeEnt("soul", null); placeEnt("soul", null);
-  } else {
-    // Souls — more in safer rooms, fewer in dangerous ones
-    const soulCount = dist <= 1 ? 2 + Math.floor(rng() * 2) : 1 + Math.floor(rng() * 2);
-    for (let i = 0; i < soulCount; i++) placeEnt("soul", null);
-
-    // Demons based on area and distance from center
-    if (area === 1) {
-      const demonTypes = ["wrathful", "grieving", "deceitful", "forgotten"];
-      if (dist >= 2) demonTypes.push("prideful", "hollow");
-      if (dist >= 3) demonTypes.push("ancient");
-      const demonCount = dist >= 3 ? 2 : 1;
-      for (let i = 0; i < demonCount; i++) placeEnt("demon", demonTypes[Math.floor(rng() * demonTypes.length)]);
-    } else if (area === 2) {
-      const demonTypes = ["ashenwalker", "bound", "rootspeaker", "ashmother"];
-      if (dist >= 2) demonTypes.push("wrathful", "ancient");
-      const demonCount = dist >= 2 ? 2 : 1;
-      for (let i = 0; i < demonCount; i++) placeEnt("demon", demonTypes[Math.floor(rng() * demonTypes.length)]);
-      // Boss in distant room
-      if (rx === 0 && ry === -3) placeEnt("demon", "devourer");
-    }
-
-    // Shrine in ~35% of rooms
-    if (rng() < 0.35) placeEnt("shrine", null);
-
-    // Stone inscriptions in ~20% of rooms
-    if (rng() < 0.2) {
-      const insIdx = Math.floor(rng() * INSCRIPTIONS.length);
-      placeEnt("inscription", `${insIdx}`);
-    }
-
-    // Gate in specific room
-    if (area === 1 && rx === 2 && ry === 2) {
-      placeEnt("gate", null);
-    }
-  }
-
-  return { tiles, entities };
-}
-
-// Deterministic RNG
+// ── Utilities ───────────────────────────────────────────────────
 function mulberry32(a) {
   return function () {
     a |= 0; a = a + 0x6D2B79F5 | 0;
@@ -774,1222 +28,1739 @@ function mulberry32(a) {
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
 }
+function isWalkable(tile, doorsOpen) {
+  return tile === T.EMPTY || tile === T.SWITCH || tile === T.MIRROR || (tile === T.DOOR && doorsOpen);
+}
+const snap = v => Math.max(DOOR_LO, Math.min(DOOR_HI, v));
+function drawPixelDiamond(ctx, cx, cy, r, filled) {
+  for (let dy = -r; dy <= r; dy++) {
+    const w = r - Math.abs(dy);
+    if (filled) ctx.fillRect(cx - w, cy + dy, w * 2 + 1, 1);
+    else {
+      ctx.fillRect(cx - w, cy + dy, 1, 1);
+      if (w > 0) ctx.fillRect(cx + w, cy + dy, 1, 1);
+    }
+  }
+}
 
-// ── Demons (same as before, abbreviated) ───────────────────────
-const DEMONS = {
-  wrathful: { name: "The Burning", boss: false, lore: "Fire from below. Something feeds the rage.",
-    greetings: ["You carry light. It burns.", "Another walker through fire.", "I was patient once."],
-    responses: { confront: [{ t: "You meet its fury. Rage needs fear and finds none.", r: -8, ok: true }, { t: "You stand firm. Claws through conviction.", r: -10, ok: true }, { t: "You push. Neither yields.", r: -15, ok: false }], comprehend: [{ t: "Beneath: anguish calcified. It refuses to be seen.", r: -10, ok: false }, { t: "Love with nowhere to go. You see it.", r: -8, ok: true }], absolve: [{ t: "'Do not pity me.' Flames dim but hold.", r: -5, ok: false }, { t: "For one moment, a human shape. Gone.", r: -5, ok: true }], endure: [{ t: "Fury breaks on stone. The shade is spent.", r: -15, ok: true }, { t: "Deeper than expected. Resolve frays.", r: -18, ok: false }] } },
-  grieving: { name: "The Weeping", boss: false, lore: "The child's soul was pulled down. Taken.",
-    greetings: ["I was someone once.", "It's cold here.", "You look like someone I knew."],
-    responses: { confront: [{ t: "Grief named can move.", r: -6, ok: true }, { t: "Wounded beyond what cutting reaches.", r: -8, ok: false }], comprehend: [{ t: "You listen. Understanding like warmth.", r: -4, ok: true }, { t: "The telling takes something heavy.", r: -5, ok: true }], absolve: [{ t: "'You would carry this?' Silence.", r: -3, ok: true }, { t: "'What is left of me?'", r: -5, ok: false }], endure: [{ t: "Sometimes presence is enough.", r: -10, ok: false }, { t: "'Thank you for staying.' It fades.", r: -12, ok: true }] } },
-  deceitful: { name: "Two-Faced", boss: false, lore: "A voice beneath. Something that promises and takes.",
-    greetings: ["I know what you want.", "Don't trust me.", "I can make it easier."],
-    responses: { confront: [{ t: "Which lie? It shifts.", r: -10, ok: false }, { t: "You refuse its performance.", r: -8, ok: true }], comprehend: [{ t: "Root: terror, not malice.", r: -6, ok: true }, { t: "Beneath the last lie: small, frightened.", r: -5, ok: true }], absolve: [{ t: "'Forgive what?' Absolution slides off.", r: -5, ok: false }, { t: "You forgive what was done to it.", r: -4, ok: true }], endure: [{ t: "Beautiful lies. You hold none.", r: -14, ok: true }, { t: "By the seventh lie, uncertain.", r: -12, ok: false }] } },
-  prideful: { name: "The Crowned", boss: false, lore: "It guarded something below. Failed. Crown is penance.",
-    greetings: ["Kneel or pass.", "How small.", "Since before mourning."],
-    responses: { confront: [{ t: "An equal. The crown cracks.", r: -12, ok: true }, { t: "Born from challenge. Stronger.", r: -14, ok: false }], comprehend: [{ t: "Loneliness beneath grandeur.", r: -8, ok: true }, { t: "Crown is cage. Contempt.", r: -10, ok: false }], absolve: [{ t: "Permission to rest. Cracks.", r: -5, ok: true }, { t: "Mercy given downward.", r: -8, ok: false }], endure: [{ t: "Neither kneel nor challenge. Crown slips.", r: -18, ok: true }, { t: "Ages you cannot fathom.", r: -20, ok: false }] } },
-  forgotten: { name: "The Fading", boss: false, lore: "Not lost. Placed. A bookmark no one reads.",
-    greetings: ["Can you see me?", "I had a name.", "Am I the demon?"],
-    responses: { confront: [{ t: "'I see you.' Being seen.", r: -3, ok: true }, { t: "Clings to attention.", r: -6, ok: false }], comprehend: [{ t: "A name surfaces. It can forget.", r: -4, ok: true }, { t: "A child's laugh. Rain. A life?", r: -5, ok: true }], absolve: [{ t: "Nothing on purpose. It smiles.", r: -2, ok: true }, { t: "Mercy passes through.", r: -4, ok: false }], endure: [{ t: "Nothing. Always.", r: -8, ok: false }, { t: "Fragments. Then a pattern.", r: -10, ok: true }] } },
-  hollow: { name: "The Hollow", boss: false, lore: "Emptied by something that feeds. Below.",
-    greetings: ["...", "Should be something here.", "Contained multitudes once."],
-    responses: { confront: [{ t: "Emptiness is still something.", r: -6, ok: true }, { t: "Force passes through.", r: -8, ok: false }], comprehend: [{ t: "Full of where things were.", r: -5, ok: true }, { t: "Nothing to understand.", r: -8, ok: false }], absolve: [{ t: "Light through cracks.", r: -3, ok: true }, { t: "Mercy drains.", r: -4, ok: false }], endure: [{ t: "Space held. Enough.", r: -10, ok: true }, { t: "Nothing to resist.", r: -14, ok: false }] } },
-  ancient: { name: "The Ancient", boss: false, lore: "'Something woke below. Old. Hungry. It eats what souls are made of.'",
-    greetings: ["Youngest thing I've met.", "Watched the first soul.", "Without trembling. Interesting."],
-    responses: { confront: [{ t: "You refuse diminishment. 'Hm.'", r: -15, ok: true }, { t: "'Brave. Futile.'", r: -18, ok: false }], comprehend: [{ t: "One thread. It shares.", r: -10, ok: true }, { t: "First sunrise. Too much.", r: -16, ok: false }], absolve: [{ t: "Cups your mercy like flame.", r: -6, ok: true }, { t: "Forgiving the ocean.", r: -10, ok: false }], endure: [{ t: "'Fine mountain.'", r: -20, ok: true }, { t: "Mayfly vs glacier.", r: -22, ok: false }] } },
-  devourer: { name: "The Devourer", boss: true, lore: "Not evil. Starving. A hunger older than sin.",
-    greetings: ["Finally. Substance.", "How long I have been empty.", "I cannot stop."],
-    responses: { confront: [{ t: "The hunger is vast. But you have faced the vast before.", r: -20, ok: true }, { t: "Too large. It swallows conviction.", r: -25, ok: false }], comprehend: [{ t: "Not a monster. A wound. Something that should have healed.", r: -12, ok: true }, { t: "Measureless depth.", r: -18, ok: false }], absolve: [{ t: "'I forgive you for needing.' It weeps. Never been forgiven.", r: -8, ok: true }, { t: "How do you absolve hunger?", r: -12, ok: false }], endure: [{ t: "It feeds. You let it. You have more than it expects.", r: -28, ok: true }, { t: "Not infinite.", r: -30, ok: false }] } },
-  // ── Area 2 Demons ──
-  ashenwalker: { name: "The Endless Walk", boss: false, lore: "It walks the same path. Forever. The fire took everything but the walking.",
-    greetings: ["Step. Step. Step.", "The path is all.", "I remember burning."],
-    responses: { confront: [{ t: "You block the path. It walks through you.", r: -14, ok: false }, { t: "You walk beside it. Together for a time.", r: -10, ok: true }], comprehend: [{ t: "The fire. A village. Children singing before.", r: -8, ok: true }, { t: "Ash and ash and ash.", r: -12, ok: false }], absolve: [{ t: "The walking slows. 'Where am I going?'", r: -6, ok: true }, { t: "It cannot stop. Forgiveness slides past.", r: -10, ok: false }], endure: [{ t: "You match its pace. Mile after mile. It tires.", r: -16, ok: true }, { t: "It never tires. You do.", r: -20, ok: false }] } },
-  bound: { name: "The Chained", boss: false, lore: "Chained not by others but by itself. The guilt is the lock.",
-    greetings: ["Don't look.", "I deserve this.", "These chains are mine."],
-    responses: { confront: [{ t: "The chains are rusted open. It holds them closed.", r: -10, ok: true }, { t: "It wraps tighter. Confront feeds guilt.", r: -16, ok: false }], comprehend: [{ t: "'I hurt someone. Long ago.' Understanding cracks a link.", r: -8, ok: true }, { t: "The guilt has become its skeleton. Remove it and nothing stands.", r: -14, ok: false }], absolve: [{ t: "A chain falls. Then another. 'Who gave you the right?' You. 'Oh.'", r: -5, ok: true }, { t: "It rejects mercy violently.", r: -12, ok: false }], endure: [{ t: "You sit beside the chains and wait. Eventually, it stops pulling.", r: -18, ok: true }, { t: "Guilt doesn't tire. You do.", r: -22, ok: false }] } },
-  rootspeaker: { name: "Voice of Roots", boss: false, lore: "The roots remember what the trees forgot. Something fed them lies.",
-    greetings: ["The roots know.", "Listen to the ground.", "It speaks through me."],
-    responses: { confront: [{ t: "Roots don't fight. They grow around you.", r: -12, ok: false }, { t: "You tear through. Truth in the heartwood.", r: -14, ok: true }], comprehend: [{ t: "Not words — vibrations. You learn to feel them.", r: -6, ok: true }, { t: "The language is older than speech. You drown.", r: -16, ok: false }], absolve: [{ t: "The roots loosen their grip on old bones.", r: -4, ok: true }, { t: "They don't want mercy. They want to be heard.", r: -8, ok: false }], endure: [{ t: "The vibrations pass through you. You become a tuning fork.", r: -20, ok: true }, { t: "Patience doesn't work on something eternal.", r: -24, ok: false }] } },
-  ashmother: { name: "Mother of Ash", boss: false, lore: "She fed the fire to save them. They burned anyway. Now she feeds everything.",
-    greetings: ["Are you hungry?", "Let me carry that.", "Everyone leaves."],
-    responses: { confront: [{ t: "'You don't need to carry this.' She drops something heavy.", r: -8, ok: true }, { t: "She absorbs confrontation like fuel.", r: -14, ok: false }], comprehend: [{ t: "Love so large it crushed what it held. You see.", r: -6, ok: true }, { t: "The depth of it pulls you under.", r: -12, ok: false }], absolve: [{ t: "'You did enough.' She weeps ash. Lighter.", r: -3, ok: true }, { t: "She doesn't believe she deserves it.", r: -8, ok: false }], endure: [{ t: "You let her hold you. She needed to hold something alive.", r: -15, ok: true }, { t: "Mothering becomes consuming.", r: -20, ok: false }] } },
+// ── 24x24 Sprites ───────────────────────────────────────────────
+const S = {};
+const def = (name, rows) => { S[name] = rows; };
+
+def("player", [
+  "000000000011110000000000","000000001111111100000000","000000011111111110000000",
+  "000000011111111110000000","000000011111111110000000","000000001111111100000000",
+  "000000000111111000000000","000001111111111111100000","000011111111111111110000",
+  "000111111111111111111000","000111111111111111111000","000011111111111111110000",
+  "000001111111111111100000","000000111111111111000000","000000111111111111000000",
+  "000000011111111110000000","000000011111111110000000","000000111100001111000000",
+  "000000111000000111000000","000001110000000011100000","000001110000000011100000",
+  "000011100000000001110000","000011110000000011110000","000111110000000011111000",
+]);
+def("wall", [
+  "111111111111111111111111","111111111111111111111111","110000011100000111000001",
+  "110000011100000111000001","111111111111111111111111","111111111111111111111111",
+  "100011100001110000111000","100011100001110000111000","111111111111111111111111",
+  "111111111111111111111111","110000011100000111000001","110000011100000111000001",
+  "111111111111111111111111","111111111111111111111111","100011100001110000111000",
+  "100011100001110000111000","111111111111111111111111","111111111111111111111111",
+  "110000011100000111000001","110000011100000111000001","111111111111111111111111",
+  "111111111111111111111111","100011100001110000111000","100011100001110000111000",
+]);
+def("tree", [
+  "000000000001100000000000","000000000011110000000000","000000000111111000000000",
+  "000000001111111100000000","000000011111111110000000","000000111111111111000000",
+  "000001111111111111100000","000011111111111111110000","000011111111111111110000",
+  "000011111111111111110000","000001111111111111100000","000000111111111111000000",
+  "000000011111111110000000","000000001111111100000000","000000000111111000000000",
+  "000000000011110000000000","000000000001100000000000","000000000001100000000000",
+  "000000000001100000000000","000000000001100000000000","000000000001100000000000",
+  "000000000001100000000000","000000000011110000000000","000000000111111000000000",
+]);
+def("npc", [
+  "000000000011110000000000","000000000111111000000000","000000001101101100000000",
+  "000000001111111100000000","000000000111111000000000","000000000011110000000000",
+  "000000000111111000000000","000000001111111100000000","000000011111111110000000",
+  "000000111111111111000000","000001111111111111100000","000011111111111111110000",
+  "000011111111111111110000","000011111111111111110000","000011111111111111110000",
+  "000011111111111111110000","000011111111111111110000","000001111111111111100000",
+  "000001111111111111100000","000000111111111111000000","000000111111111111000000",
+  "000000011111111110000000","000000001100001100000000","000000011000000110000000",
+]);
+def("sign", [
+  "000000000011110000000000","000000000011110000000000","000001111111111111100000",
+  "000001111111111111100000","000001111111111111100000","000001111111111111100000",
+  "000001111111111111100000","000001111111111111100000","000001111111111111100000",
+  "000001111111111111100000","000000000011110000000000","000000000011110000000000",
+  "000000000011110000000000","000000000011110000000000","000000000011110000000000",
+  "000000000011110000000000","000000000011110000000000","000000000011110000000000",
+  "000000000011110000000000","000000000011110000000000","000000000011110000000000",
+  "000000000011110000000000","000000001111111100000000","000000001111111100000000",
+]);
+def("half_light", [
+  "000000000001100000000000","000000000011110000000000","000000000111111000000000",
+  "000000001111111100000000","000000011111111110000000","000000111111111111000000",
+  "000001111111111111100000","000011111111111111110000","000000000000000000000000",
+  "000000000000000000000000","000000000000000000000000","000000000000000000000000",
+  "000000000000000000000000","000000000000000000000000","000000000000000000000000",
+  "000000000000000000000000","000100000000000000010000","000000000000000000000000",
+  "000000000000000000000000","000000000000000000000000","000000000000000000000000",
+  "000000000000000000000000","000000000000000000000000","000000000000000000000000",
+]);
+def("half_shadow", [
+  "000000000000000000000000","000000000000000000000000","000000000000000000000000",
+  "000000000000000000000000","000000000000000000000000","000000000000000000000000",
+  "000000000000000000000000","000011111111111111110000","000001111111111111100000",
+  "000000111111111111000000","000000011111111110000000","000000001111111100000000",
+  "000000000111111000000000","000000000011110000000000","000000000001100000000000",
+  "000000000000000000000000","000000000000000000000000","000000000000000000000000",
+  "000100000000000000010000","000000000000000000000000","000000000000000000000000",
+  "000000000000000000000000","000000000000000000000000","000000000000000000000000",
+]);
+def("shard_merged", [
+  "000000000001100000000000","000000000011110000000000","000000000111111000000000",
+  "000000001111111100000000","000000011111111110000000","000000111111111111000000",
+  "000001111111111111100000","000011111111111111110000","000001111111111111100000",
+  "000000111111111111000000","000000011111111110000000","000000001111111100000000",
+  "000000000111111000000000","000000000011110000000000","000000000001100000000000",
+  "000000000000000000000000","011000000000000000001100","000000000000000000000000",
+  "000110000000000000110000","000000000000000000000000","000001100000000011000000",
+  "000000000000000000000000","000000001100001100000000","000000000000000000000000",
+]);
+def("door", [
+  "000000011111111100000000","000000111111111110000000","000001110000000111000000",
+  "000011100000000011100000","000011000000000001100000","000110000000000000110000",
+  "000110000000000000110000","000110000000000000110000","000110000001100000110000",
+  "000110000011110000110000","000110000011110000110000","000110000001100000110000",
+  "000110000000000000110000","000110000000000000110000","000110000000000000110000",
+  "000110000000000000110000","000110000000000000110000","000110000000000000110000",
+  "000110000000000000110000","000110000000000000110000","000111111111111111110000",
+  "000111111111111111110000","000000000000000000000000","000000000000000000000000",
+]);
+def("ghoul", [
+  "000000000111110000000000","000000001111111000000000","000000011101101110000000",
+  "000000011111111110000000","000000011111111110000000","000000001111111100000000",
+  "000000001111111100000000","000000011111111110000000","000001111111111111100000",
+  "000011111111111111110000","000111111111111111111000","001111111111111111111100",
+  "001111111111111111111100","001111111111111111111100","000111111111111111111000",
+  "000011111111111111110000","000001111111111111100000","000000111111111111000000",
+  "000000011101110110000000","000000001100001100000000","000000011000000110000000",
+  "000000110000000011000000","000001100000000001100000","000011000000000000110000",
+]);
+def("plate", [
+  "000000000000000000000000","000000000000000000000000","000000000000000000000000",
+  "000000000000000000000000","000000000000000000000000","000000000000000000000000",
+  "000000000000000000000000","000000000000000000000000","000000000000000000000000",
+  "000000000000000000000000","000000000000000000000000","000000000000000000000000",
+  "000000000000000000000000","000000000000000000000000","000000000000000000000000",
+  "000000000000000000000000","000001111111111111100000","000011111111111111110000",
+  "000011000000000001110000","000011000000000001110000","000011111111111111110000",
+  "000001111111111111100000","000000000000000000000000","000000000000000000000000",
+]);
+
+def("mirror_tile", [
+  "000000000000000000000000","000000000111111000000000","000000011000000110000000",
+  "000000100000000001000000","000001000000000000100000","000010000011100000010000",
+  "000010000111110000010000","000100001111111000001000","000100001111111000001000",
+  "000100001111111000001000","000010000111110000010000","000010000011100000010000",
+  "000001000000000000100000","000000100000000001000000","000000011000000110000000",
+  "000000000111111000000000","000000000111111000000000","000000011000000110000000",
+  "000000100000000001000000","000001000011100000100000","000010000111110000010000",
+  "000010001111111000010000","000001001111111000100000","000000111111111110000000",
+]);
+
+// ── Parse room ──────────────────────────────────────────────────
+function parseRoom(str) {
+  return str.trim().split("\n").map(row => {
+    const r = row.trim(); const tiles = [];
+    for (let i = 0; i < GRID; i++) {
+      const c = i < r.length ? r[i] : ".";
+      tiles.push(c === "#" ? T.WALL : c === "T" ? T.TREE : c === "~" ? T.WATER : c === "D" ? T.DOOR : c === "S" ? T.SWITCH : c === "M" ? T.MIRROR : T.EMPTY);
+    }
+    return tiles;
+  });
+}
+
+// ── Shard locations (each has a light-half and shadow-half) ─────
+const SHARD_LOCS = [
+  { rx: 0, ry: -1, id: "shard_0", lx: 11, ly: 4, sx: 4, sy: 10 },
+  { rx: -1, ry: 0, id: "shard_1", lx: 11, ly: 3, sx: 3, sy: 11 },
+  { rx: 1, ry: 1, id: "shard_2", lx: 11, ly: 11, sx: 3, sy: 3 },
+  { rx: 2, ry: -1, id: "shard_3", lx: 12, ly: 2, sx: 3, sy: 12 },
+  { rx: 0, ry: 2, id: "shard_4", lx: 12, ly: 3, sx: 2, sy: 11 },
+];
+const SHARD_PICKUP_LINES = [
+  "1/5 - A quiet star wakes.",
+  "2/5 - The dark learns its name.",
+  "3/5 - Two roads remember one sky.",
+  "4/5 - The rift begins to sing.",
+  "5/5 - Return to the Watcher.",
+];
+const TOTAL_VOID_SHARDS = 5;
+const VOID_SHARD_LOCS = [
+  { rx: 0, ry: -3, id: "void_0" },
+  { rx: -3, ry: 0, id: "void_1" },
+  { rx: 3, ry: 3, id: "void_2" },
+  { rx: -2, ry: -2, id: "void_3" },
+  { rx: 2, ry: 3, id: "void_4" },
+];
+const VOID_PICKUP_LINES = [
+  "1/5 \u2014 The echo answers.",
+  "2/5 \u2014 Deep roots find deep water.",
+  "3/5 \u2014 The mirror cracks, but does not break.",
+  "4/5 \u2014 Even silence has a shape.",
+  "5/5 \u2014 Return to the Watcher. The final seam awaits.",
+];
+const TOTAL_ECHO_SHARDS = 5;
+const ECHO_SHARD_LOCS = [
+  { rx: 0, ry: -4, id: "echo_0" },
+  { rx: -4, ry: 0, id: "echo_1" },
+  { rx: 4, ry: 2, id: "echo_2" },
+  { rx: -3, ry: -3, id: "echo_3" },
+  { rx: 3, ry: -2, id: "echo_4" },
+];
+const ECHO_PICKUP_LINES = [
+  "1/5 \u2014 The reflection speaks.",
+  "2/5 \u2014 What moves forward, moves back.",
+  "3/5 \u2014 Two paths. One step.",
+  "4/5 \u2014 The mirror remembers your name.",
+  "5/5 \u2014 Return to the Watcher. Let the reflection rest.",
+];
+const isBlockingEntity = e => e.type === "npc";
+
+// ── Ghoul AI ───────────────────────────────────────────────────
+function moveGhouls(entities, tiles, playerPos) {
+  return entities.map(e => {
+    if (e.type !== "ghoul") return e;
+    const dx = Math.sign(playerPos.x - e.x);
+    const dy = Math.sign(playerPos.y - e.y);
+    // Try primary axis (larger distance first), then secondary
+    const adx = Math.abs(playerPos.x - e.x), ady = Math.abs(playerPos.y - e.y);
+    const moves = adx >= ady
+      ? [{ dx, dy: 0 }, { dx: 0, dy }]
+      : [{ dx: 0, dy }, { dx, dy: 0 }];
+    for (const m of moves) {
+      if (m.dx === 0 && m.dy === 0) continue;
+      const nx = e.x + m.dx, ny = e.y + m.dy;
+      if (nx < 0 || nx >= GRID || ny < 0 || ny >= GRID) continue;
+      if (tiles[ny][nx] === T.WALL || tiles[ny][nx] === T.TREE || tiles[ny][nx] === T.WATER) continue;
+      // Don't stack on other ghouls
+      if (entities.some(o => o !== e && o.type === "ghoul" && o.x === nx && o.y === ny)) continue;
+      return { ...e, x: nx, y: ny };
+    }
+    return e; // stuck
+  });
+}
+
+function checkGhoulCollision(entities, pos) {
+  return entities.some(e => e.type === "ghoul" && e.x === pos.x && e.y === pos.y);
+}
+
+// ── Pressure plate logic ───────────────────────────────────────
+function isPlatePressed(world, playerPos) {
+  if (world.tiles[playerPos.y]?.[playerPos.x] === T.SWITCH) return true;
+  return world.entities.some(e =>
+    (e.type === "half_light" || e.type === "half_shadow") &&
+    world.tiles[e.y]?.[e.x] === T.SWITCH
+  );
+}
+
+// ── Room definitions ────────────────────────────────────────────
+// R = helper for full-height wall column
+const wallCol = (col) => {
+  let s = "";
+  for (let y = 0; y < GRID; y++) {
+    let row = "";
+    for (let x = 0; x < GRID; x++) row += x === col ? "#" : ".";
+    s += row + (y < GRID - 1 ? "\n" : "");
+  }
+  return s;
+};
+const emptyRoom = () => {
+  let s = "";
+  for (let y = 0; y < GRID; y++) { s += "..............."; if (y < GRID - 1) s += "\n"; }
+  return s;
+};
+const pointWalls = (pts) => {
+  const rows = Array.from({ length: GRID }, () => Array(GRID).fill("."));
+  pts.forEach(([x, y]) => { if (x >= 0 && x < GRID && y >= 0 && y < GRID) rows[y][x] = "#"; });
+  return rows.map(r => r.join("")).join("\n");
 };
 
-const WHISPERS = ["I forgot which home.", "Didn't mean to leave quietly.", "Birdsong was the last thing.", "Reaching for a hand.", "The book was good.", "Garden needs watering.", "Letter in the drawer.", "Promised I'd be there.", "Looking at the sky.", "Black cat, white ear.", "About to understand.", "Mid-sentence.", "Rain smells different.", "Church bells.", "Tea is warm.", "I never said goodbye.", "The bread was rising.", "She was laughing.", "Almost morning.", "The dog kept waiting.", "I left the light on.", "Nobody checked the mail.", "It was my birthday.", "One more page.", "We were going to dance.", "The flowers bloomed late.", "I knew the way home.", "She held my hand.", "The window was open.", "I could hear the ocean."];
-const AMBIENT1 = ["Tall grass rustles.", "The meadow stretches.", "Something stirs.", "No sun. No moon.", "A silence that listens.", "Shadow between trees.", "Lighter grass here.", "Humming stops when you stop.", "Wind carries nothing.", "Grass bends toward you.", "A clearing ahead.", "The path forks invisible.", "Dewdrops on still leaves.", "Your footsteps are the only sound.", "Something watched. Then didn't."];
-const AMBIENT2 = ["Ash drifts upward.", "Bone-white trees.", "No sound in ash.", "Something breathes below.", "The air tastes of endings.", "A branch cracks alone.", "Grey flakes like snow.", "Heavier silence.", "The ground is warm.", "Roots pulse faintly.", "Ash swallows footprints.", "A whisper from underground.", "The trees lean inward.", "Something shifts beneath.", "The silence has weight here."];
+function getTutorialRoom(rx, ry) {
+  if (rx === 0 && ry === 0) return {
+    light: {
+      tiles: parseRoom(
+        "...............\n...............\n..T.........T..\n...............\n...............\n...............\n...............\n" +
+        "...............\n...............\n...............\n...............\n...............\n..T.........T..\n...............\n..............."),
+      entities: [{ id: "watcher", type: "npc", sprite: "npc", x: 5, y: 7, dialogue: "watcher" }]
+    },
+    shadow: {
+      tiles: parseRoom(
+        "...............\n...............\n...............\n...T.......T...\n...............\n...............\n...............\n" +
+        "...............\n...............\n...............\n...............\n...T.......T...\n...............\n...............\n..............."),
+      entities: []
+    }
+  };
+  if (rx === 1 && ry === 0) return {
+    light: { tiles: parseRoom(wallCol(9)),
+      entities: [{ id: "sign_1L", type: "sign", sprite: "sign", x: 3, y: 7, text: "Press 1 to split Light for five steps." }] },
+    shadow: { tiles: parseRoom(emptyRoom()), entities: [] }
+  };
+  if (rx === 2 && ry === 0) return {
+    light: { tiles: parseRoom(emptyRoom()), entities: [] },
+    shadow: { tiles: parseRoom(wallCol(9)),
+      entities: [{ id: "sign_2S", type: "sign", sprite: "sign", x: 3, y: 7, text: "Press 2 to split Shadow for five steps." }] }
+  };
+  if (rx === 3 && ry === 0) return {
+    light: { tiles: parseRoom(wallCol(10)), entities: [] },
+    shadow: { tiles: parseRoom(wallCol(5)), entities: [] }
+  };
+  if (rx === 4 && ry === 0) return {
+    light: {
+      tiles: parseRoom(
+        "...............\n...............\n..T...T...T....\n...............\n...............\n...............\n...............\n" +
+        "...............\n...............\n...............\n...............\n...............\n..T...T...T....\n...............\n..............."),
+      entities: [{ id: "sage", type: "npc", sprite: "npc", x: 7, y: 6, dialogue: "sage" }]
+    },
+    shadow: {
+      tiles: parseRoom(
+        "...............\n...............\n...............\n...T...T...T...\n...............\n...............\n...............\n" +
+        "...............\n...............\n...............\n...............\n...T...T...T...\n...............\n...............\n..............."),
+      entities: []
+    }
+  };
 
-// Discoverable inscriptions scattered in the world
-const INSCRIPTIONS = [
-  "HERE RESTED ONE WHO WALKED GENTLY",
-  "THE ROOTS REMEMBER WHAT THE SKY FORGETS",
-  "NOT ALL WHO WANDER ARE LOST — SOME ARE SEARCHING",
-  "BETWEEN BREATH AND SILENCE: EVERYTHING",
-  "THIS STONE WAS PLACED BY HANDS NOW DUST",
-  "THE MEADOW HOLDS WHAT THE LIVING RELEASE",
-  "WHERE SOULS REST THE GROUND GROWS WARM",
-  "FORGIVENESS IS THE LIGHTEST THING TO CARRY",
-  "THE KEEPER SPEAKS: 'LISTEN TO WHAT HURTS'",
-  "THOSE WHO FEED ON SOULS WERE ONCE FED UPON",
-  "THE GATE OPENS NOT TO STRENGTH BUT TO TRUTH",
-  "ASH WAS ONCE A FOREST. THE FOREST WAS ONCE A SEA",
-  "YOU CANNOT SAVE WHAT REFUSES TO BE HELD",
-  "THE DEVOURER WAS A CHILD ONCE. REMEMBER THIS",
-  "EVERY GRAVE IS SOMEONE'S ANCHOR",
-];
+  // ── The Ambush (1,-1): unwinnable ghoul encounter ──
+  if (rx === 1 && ry === -1) return {
+    light: { tiles: parseRoom(pointWalls([[3,3],[4,3],[10,3],[11,3],[3,11],[4,11],[10,11],[11,11]])),
+      entities: [
+        { id: "g_l0", type: "ghoul", sprite: "ghoul", x: 1, y: 1 },
+        { id: "g_l1", type: "ghoul", sprite: "ghoul", x: 13, y: 1 },
+        { id: "g_l2", type: "ghoul", sprite: "ghoul", x: 1, y: 13 },
+        { id: "g_l3", type: "ghoul", sprite: "ghoul", x: 13, y: 13 },
+      ] },
+    shadow: { tiles: parseRoom(pointWalls([[3,3],[4,3],[10,3],[11,3],[3,11],[4,11],[10,11],[11,11]])),
+      entities: [
+        { id: "g_s0", type: "ghoul", sprite: "ghoul", x: 7, y: 1 },
+        { id: "g_s1", type: "ghoul", sprite: "ghoul", x: 7, y: 13 },
+      ] }
+  };
 
-const KEEPER = [
-  { c: s => s.t === 0, text: "You're awake. That's rare. I'm the Keeper. Walk around with the D-pad. When you see a glowing soul, walk close and press Confirm to collect it. Then bring it to a shrine — the tall stone monument to my left." },
-  { c: s => s.t === 1, text: "Good. Souls need shrines. And you need resolve — the shrine restores it. But the demons in these meadows carry fragments of truth. Walk near one and press Confirm to face it. Choose your approach wisely." },
-  { c: s => s.t === 2, text: "Each demon type carries one truth. Defeat seven different types to open the gate. If you're hurt, collect souls and deliver them to shrines — that restores your resolve. Press J to check your progress." },
-  { c: s => s.t === 3 && s.g === 0, text: "You're carrying souls. See that stone monument nearby? Walk next to it and press Confirm to guide them to rest. You'll need the resolve it gives you." },
-  { c: s => s.t >= 3 && s.l === 0, text: "You haven't defeated a demon yet. Find one in the meadow — they look different from souls and trees. Walk near and press Confirm. Choose an approach: each has different risks." },
-  { c: s => s.t >= 3 && s.l < 4, text: `You have ${s.l} fragments of truth. You need 7 to open the gate. Each type of demon gives one fragment the first time you defeat it. Explore further from home to find stronger, rarer demons.` },
-  { c: s => s.l >= 4 && s.l < 7, text: `${s.l} of 7 truths found. ${7 - s.l} more to go. The rarer demons — The Ancient, The Crowned, The Hollow — appear in rooms further from your grave. Venture out.` },
-  { c: s => s.l >= 7 && s.a === 1, text: "All 7 truths gathered. The gate is open! Head southeast to room (2,2). Walk to the archway and press Confirm to enter the Ashen Forest. Prepare yourself." },
-  { c: s => s.a === 2 && s.b === 0, text: "The Ashen Forest. New demons roam here. The Devourer — the source of all this — waits far to the north at room (0,-3). Gather your courage. Deliver souls to shrines along the way." },
-  { c: s => s.a === 2 && s.b > 0, text: "You've done it. The Devourer is sated. You understood what others couldn't. The world is lighter. You may keep exploring — there are always more souls to guide. Rest. You've earned it." },
-];
+  // ── Ghoul patrol rooms — avoidable encounters ──
+  if (rx === -1 && ry === -1) return {
+    light: { tiles: parseRoom(pointWalls([[5,4],[6,4],[8,4],[9,4],[5,10],[6,10],[8,10],[9,10]])),
+      entities: [{ id: "gp_l0", type: "ghoul", sprite: "ghoul", x: 3, y: 7 }] },
+    shadow: { tiles: parseRoom(pointWalls([[4,5],[4,6],[4,8],[4,9],[10,5],[10,6],[10,8],[10,9]])),
+      entities: [{ id: "gp_s0", type: "ghoul", sprite: "ghoul", x: 11, y: 7 }] }
+  };
+  if (rx === 1 && ry === 2) return {
+    light: { tiles: parseRoom(pointWalls([[4,4],[5,4],[9,4],[10,4],[7,7]])),
+      entities: [
+        { id: "gp2_l0", type: "ghoul", sprite: "ghoul", x: 2, y: 2 },
+        { id: "gp2_l1", type: "ghoul", sprite: "ghoul", x: 12, y: 12 },
+      ] },
+    shadow: { tiles: parseRoom(pointWalls([[4,10],[5,10],[9,10],[10,10],[7,7]])),
+      entities: [{ id: "gp2_s0", type: "ghoul", sprite: "ghoul", x: 7, y: 2 }] }
+  };
 
-// ── Quest Milestones ──────────────────────────────────────────
-const MILESTONES = [
-  { id: "wake",     label: "Wake up",                                    check: s => s.gs !== "intro" },
-  { id: "keeper",   label: "Talk to the Keeper (next to your grave)",    check: s => s.keeperT > 0 },
-  { id: "soul",     label: "Pick up a soul (walk near, press Confirm)",  check: s => s.guided > 0 || s.held > 0 },
-  { id: "guide",    label: "Deliver a soul to a shrine",                 check: s => s.guided > 0 },
-  { id: "lore1",    label: "Defeat a demon to learn a truth (1/7)",      check: s => s.loreN >= 1 },
-  { id: "lore3",    label: "Defeat 3 different demon types (3/7)",       check: s => s.loreN >= 3 },
-  { id: "lore7",    label: "Defeat all 7 types to open the gate (7/7)",  check: s => s.loreN >= 7 },
-  { id: "area2",    label: "Enter the gate to the Ashen Forest",         check: s => s.area >= 2 },
-  { id: "boss",     label: "Find and defeat the Devourer",               check: s => s.bossTrophies.length > 0 },
-];
+  // ── Shard rooms — Zelda-style push puzzles ──
+  // Walls in the SAME world shape the push path (stop-walls, channels).
+  // Walls in the OTHER world restrict combined-mode positioning, forcing creative split approaches.
+  // Each half requires 2-3 split sessions with L-shaped push paths.
 
-const TOTAL_LORE = 10;
+  // Shard 0 (0,-1): "The Corner Push" — L-bend: push down then left / up then right. 4 splits.
+  if (rx === 0 && ry === -1) return {
+    light: { tiles: parseRoom(pointWalls([[10,4],[10,5],[10,6], [11,8], [6,7]])),
+      entities: [{ id: "shard_0_l", type: "half_light", sprite: "half_light", x: 11, y: 4 }] },
+    shadow: { tiles: parseRoom(pointWalls([[5,10],[5,9], [3,10],[3,9], [4,6], [8,7]])),
+      entities: [{ id: "shard_0_s", type: "half_shadow", sprite: "half_shadow", x: 4, y: 10 }] }
+  };
 
-// ── Component ──────────────────────────────────────────────────
+  // Shard 1 (-1,0): "The Box" — push left then down / right then up. 4 splits.
+  if (rx === -1 && ry === 0) return {
+    light: { tiles: parseRoom(pointWalls([[6,3], [7,8], [3,12], [2,11]])),
+      entities: [{ id: "shard_1_l", type: "half_light", sprite: "half_light", x: 11, y: 3 }] },
+    shadow: { tiles: parseRoom(pointWalls([[8,11], [7,6], [11,2], [12,3]])),
+      entities: [{ id: "shard_1_s", type: "half_shadow", sprite: "half_shadow", x: 3, y: 11 }] }
+  };
+
+  // Shard 2 (1,1): "The Spiral" — diagonal L-bends from opposite corners. 4 splits.
+  if (rx === 1 && ry === 1) return {
+    light: { tiles: parseRoom(pointWalls([[11,6], [6,7], [3,2], [2,3]])),
+      entities: [{ id: "shard_2_l", type: "half_light", sprite: "half_light", x: 11, y: 11 }] },
+    shadow: { tiles: parseRoom(pointWalls([[3,8], [8,7], [11,12], [12,11]])),
+      entities: [{ id: "shard_2_s", type: "half_shadow", sprite: "half_shadow", x: 3, y: 3 }] }
+  };
+
+  // Shard 3 (2,-1): "The Gauntlet" — 3-segment push paths. 6 splits.
+  if (rx === 2 && ry === -1) return {
+    light: { tiles: parseRoom(pointWalls([[12,4], [6,3], [7,6], [10,2]])),
+      entities: [{ id: "shard_3_l", type: "half_light", sprite: "half_light", x: 12, y: 2 }] },
+    shadow: { tiles: parseRoom(pointWalls([[3,8], [8,9], [7,4], [11,1],[11,2], [4,12],[4,11]])),
+      entities: [{ id: "shard_3_s", type: "half_shadow", sprite: "half_shadow", x: 3, y: 12 }] }
+  };
+
+  // Shard 4 (0,2): "The Vault" — 3-segment push paths, hardest Ch1 puzzle. 6 splits.
+  if (rx === 0 && ry === 2) return {
+    light: { tiles: parseRoom(pointWalls([[9,3], [10,8], [6,7], [12,4], [3,10],[3,9]])),
+      entities: [{ id: "shard_4_l", type: "half_light", sprite: "half_light", x: 12, y: 3 }] },
+    shadow: { tiles: parseRoom(pointWalls([[5,11], [4,6], [8,7], [2,10], [11,4],[11,3]])),
+      entities: [{ id: "shard_4_s", type: "half_shadow", sprite: "half_shadow", x: 2, y: 11 }] }
+  };
+
+  return null;
+}
+
+// ── Chapter 2: Void Shard rooms ────────────────────────────────
+function getChapter2Room(rx, ry) {
+  // Void 0 (0,-3): "The Fortress" — 3-segment L-bends. 6 splits.
+  if (rx === 0 && ry === -3) return {
+    light: { tiles: parseRoom(pointWalls([[11,6], [6,5], [7,8], [10,1]])),
+      entities: [{ id: "void_0_l", type: "half_light", sprite: "half_light", x: 11, y: 2 }] },
+    shadow: { tiles: parseRoom(pointWalls([[3,8], [8,9], [7,6], [4,13]])),
+      entities: [{ id: "void_0_s", type: "half_shadow", sprite: "half_shadow", x: 3, y: 12 }] }
+  };
+  // Void 1 (-3,0): "The Maze" — corner shards with tight channels. 6 splits.
+  if (rx === -3 && ry === 0) return {
+    light: { tiles: parseRoom(pointWalls([[3,6], [8,3], [7,8], [4,1]])),
+      entities: [{ id: "void_1_l", type: "half_light", sprite: "half_light", x: 3, y: 3 }] },
+    shadow: { tiles: parseRoom(pointWalls([[11,8], [6,11], [7,6], [10,13]])),
+      entities: [{ id: "void_1_s", type: "half_shadow", sprite: "half_shadow", x: 11, y: 11 }] }
+  };
+  // Void 2 (3,3): "The Gatekeeper" — shadow half trapped behind doors.
+  // Push light half onto light switch → shadow doors open → push shadow half out.
+  // Then push light half off switch to meeting point → collect both.
+  if (rx === 3 && ry === 3) {
+    const lTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    lTiles[7][7] = T.SWITCH; // pressure plate at center
+    // Walls: stop light half on switch, guide pushes
+    [[7,6],[6,7],[8,3]].forEach(([x,y]) => { lTiles[y][x] = T.WALL; });
+    const sTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    // Door cage around shadow half — fully enclosed, only opens via light switch
+    [[6,2],[7,2],[8,2],[6,3],[8,3],[6,4],[7,4],[8,4]].forEach(([x,y]) => { sTiles[y][x] = T.DOOR; });
+    // Walls to guide shadow half to meeting point after escape
+    [[8,7],[7,10]].forEach(([x,y]) => { sTiles[y][x] = T.WALL; });
+    return {
+      light: { tiles: lTiles,
+        entities: [{ id: "void_2_l", type: "half_light", sprite: "half_light", x: 7, y: 11 }] },
+      shadow: { tiles: sTiles,
+        entities: [{ id: "void_2_s", type: "half_shadow", sprite: "half_shadow", x: 7, y: 3 }] }
+    };
+  }
+  // Void 3 (-2,-2): "The Echo" — mirrored diagonal approach. 6 splits.
+  if (rx === -2 && ry === -2) return {
+    light: { tiles: parseRoom(pointWalls([[11,8], [8,11], [6,7], [10,10]])),
+      entities: [{ id: "void_3_l", type: "half_light", sprite: "half_light", x: 11, y: 11 }] },
+    shadow: { tiles: parseRoom(pointWalls([[3,6], [6,3], [8,7], [4,4]])),
+      entities: [{ id: "void_3_s", type: "half_shadow", sprite: "half_shadow", x: 3, y: 3 }] }
+  };
+  // Void 4 (2,3): "The Double Gate" — both halves trapped behind doors.
+  // Light half behind DOOR cage in light world (opened by shadow switch).
+  // Shadow half behind DOOR cage in shadow world (opened by light switch).
+  // Must use split to stand on one switch, freeing the other world's half.
+  if (rx === 2 && ry === 3) {
+    const lTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    lTiles[7][4] = T.SWITCH; // light switch → opens shadow doors
+    // Light half trapped behind door cage (opened by shadow switch at (10,7))
+    [[9,2],[10,2],[11,2],[9,3],[11,3],[9,4],[10,4],[11,4]].forEach(([x,y]) => { lTiles[y][x] = T.DOOR; });
+    [[6,7],[7,10]].forEach(([x,y]) => { lTiles[y][x] = T.WALL; });
+    const sTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    sTiles[7][10] = T.SWITCH; // shadow switch → opens light doors
+    // Shadow half trapped behind door cage (opened by light switch at (4,7))
+    [[3,10],[4,10],[5,10],[3,11],[5,11],[3,12],[4,12],[5,12]].forEach(([x,y]) => { sTiles[y][x] = T.DOOR; });
+    [[8,7],[7,4]].forEach(([x,y]) => { sTiles[y][x] = T.WALL; });
+    return {
+      light: { tiles: lTiles,
+        entities: [{ id: "void_4_l", type: "half_light", sprite: "half_light", x: 10, y: 3 }] },
+      shadow: { tiles: sTiles,
+        entities: [{ id: "void_4_s", type: "half_shadow", sprite: "half_shadow", x: 4, y: 11 }] }
+    };
+  }
+  return null;
+}
+
+// ── Chapter 3: Echo Shard rooms (require mirror mode) ──────────
+function getChapter3Room(rx, ry) {
+  // Each room has MIRROR tiles that the player must step on.
+  // In mirror mode, shadow moves opposite to light — needed to push halves apart toward meeting point.
+
+  // Echo 0 (0,-4): "The Reflection" — MANDATORY mirror puzzle.
+  // Both halves behind door cages. Light switch at (3,7), shadow switch at (11,7).
+  // Combined mode: both at same pos, can only reach one switch.
+  // Split mode: one snaps back, losing the switch.
+  // Mirror mode from (7,7): press LEFT 4x → light(3,7) shadow(11,7). Both pressed!
+  if (rx === 0 && ry === -4) {
+    const lTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    lTiles[7][3] = T.SWITCH; lTiles[7][7] = T.MIRROR;
+    // Light shard behind shadow-controlled door cage
+    [[9,2],[10,2],[11,2],[9,3],[11,3],[9,4],[10,4],[11,4]].forEach(([x,y]) => { lTiles[y][x] = T.DOOR; });
+    // Block combined approach to shadow switch position
+    [[11,6],[11,8]].forEach(([x,y]) => { lTiles[y][x] = T.WALL; });
+    const sTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    sTiles[7][11] = T.SWITCH; sTiles[7][7] = T.MIRROR;
+    // Shadow shard behind light-controlled door cage
+    [[3,10],[4,10],[5,10],[3,11],[5,11],[3,12],[4,12],[5,12]].forEach(([x,y]) => { sTiles[y][x] = T.DOOR; });
+    // Block combined approach to light switch position
+    [[3,6],[3,8]].forEach(([x,y]) => { sTiles[y][x] = T.WALL; });
+    return {
+      linkedPlates: true,
+      light: { tiles: lTiles,
+        entities: [{ id: "echo_0_l", type: "half_light", sprite: "half_light", x: 10, y: 3 }] },
+      shadow: { tiles: sTiles,
+        entities: [{ id: "echo_0_s", type: "half_shadow", sprite: "half_shadow", x: 4, y: 11 }] }
+    };
+  }
+
+  // Echo 1 (-4,0): "The Divide" — vertical mirror puzzle.
+  // Mirror tile triggers inverse vertical movement. Push halves apart vertically.
+  if (rx === -4 && ry === 0) {
+    const lTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    lTiles[7][7] = T.MIRROR;
+    [[7,3],[6,7],[8,7]].forEach(([x,y]) => { lTiles[y][x] = T.WALL; });
+    const sTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    sTiles[7][7] = T.MIRROR;
+    [[7,11],[6,7],[8,7]].forEach(([x,y]) => { sTiles[y][x] = T.WALL; });
+    return {
+      light: { tiles: lTiles,
+        entities: [{ id: "echo_1_l", type: "half_light", sprite: "half_light", x: 7, y: 5 }] },
+      shadow: { tiles: sTiles,
+        entities: [{ id: "echo_1_s", type: "half_shadow", sprite: "half_shadow", x: 7, y: 9 }] }
+    };
+  }
+
+  // Echo 2 (4,2): "The Crossroads" — mirror + walls force diagonal-like convergence.
+  if (rx === 4 && ry === 2) {
+    const lTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    lTiles[10][7] = T.MIRROR;
+    [[3,7],[7,3],[6,10],[8,10]].forEach(([x,y]) => { lTiles[y][x] = T.WALL; });
+    const sTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    sTiles[10][7] = T.MIRROR;
+    [[11,7],[7,11],[6,10],[8,10]].forEach(([x,y]) => { sTiles[y][x] = T.WALL; });
+    return {
+      light: { tiles: lTiles,
+        entities: [{ id: "echo_2_l", type: "half_light", sprite: "half_light", x: 5, y: 10 }] },
+      shadow: { tiles: sTiles,
+        entities: [{ id: "echo_2_s", type: "half_shadow", sprite: "half_shadow", x: 9, y: 10 }] }
+    };
+  }
+
+  // Echo 3 (-3,-3): "The Paradox" — two mirror tiles creating a sequence.
+  if (rx === -3 && ry === -3) {
+    const lTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    lTiles[4][7] = T.MIRROR; lTiles[10][7] = T.MIRROR;
+    [[3,4],[11,4],[7,2],[5,10],[9,10]].forEach(([x,y]) => { lTiles[y][x] = T.WALL; });
+    const sTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    sTiles[4][7] = T.MIRROR; sTiles[10][7] = T.MIRROR;
+    [[3,10],[11,10],[7,12],[5,4],[9,4]].forEach(([x,y]) => { sTiles[y][x] = T.WALL; });
+    return {
+      light: { tiles: lTiles,
+        entities: [{ id: "echo_3_l", type: "half_light", sprite: "half_light", x: 7, y: 3 }] },
+      shadow: { tiles: sTiles,
+        entities: [{ id: "echo_3_s", type: "half_shadow", sprite: "half_shadow", x: 7, y: 11 }] }
+    };
+  }
+
+  // Echo 4 (3,-2): "The Final Mirror" — hardest. Mirror + doors + switches + push.
+  // Same dual-switch pattern but switches are farther (3 steps) and shards need L-push after freeing.
+  // Mirror at (7,10). Press UP 3x in mirror: light(7,7) shadow(7,13)→clamp. Adjust:
+  // Mirror at (7,7). Switches at (4,7) light and (10,7) shadow. Press LEFT 3x.
+  if (rx === 3 && ry === -2) {
+    const lTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    lTiles[7][4] = T.SWITCH; lTiles[7][7] = T.MIRROR;
+    // Light shard behind shadow-controlled doors + walls forming L-path
+    [[9,2],[10,2],[11,2],[11,3],[11,4],[9,4],[10,4]].forEach(([x,y]) => { lTiles[y][x] = T.DOOR; });
+    [[10,6],[10,8],[9,7]].forEach(([x,y]) => { lTiles[y][x] = T.WALL; });
+    const sTiles = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+    sTiles[7][10] = T.SWITCH; sTiles[7][7] = T.MIRROR;
+    // Shadow shard behind light-controlled doors + walls forming L-path
+    [[3,10],[4,10],[5,10],[3,11],[3,12],[5,12],[5,11]].forEach(([x,y]) => { sTiles[y][x] = T.DOOR; });
+    [[4,6],[4,8],[5,7]].forEach(([x,y]) => { sTiles[y][x] = T.WALL; });
+    return {
+      linkedPlates: true,
+      light: { tiles: lTiles,
+        entities: [{ id: "echo_4_l", type: "half_light", sprite: "half_light", x: 10, y: 3 }] },
+      shadow: { tiles: sTiles,
+        entities: [{ id: "echo_4_s", type: "half_shadow", sprite: "half_shadow", x: 4, y: 11 }] }
+    };
+  }
+
+  return null;
+}
+
+// ── Procedural generation ───────────────────────────────────────
+function generateDualRoom(rx, ry, seed, chapter) {
+  const tutorial = getTutorialRoom(rx, ry);
+  if (tutorial) return tutorial;
+  if (chapter >= 2) {
+    const ch2 = getChapter2Room(rx, ry);
+    if (ch2) return ch2;
+  }
+  if (chapter >= 3) {
+    const ch3 = getChapter3Room(rx, ry);
+    if (ch3) return ch3;
+  }
+
+  const lrng = mulberry32(seed + rx * 7919 + ry * 6271);
+  const srng = mulberry32(seed + rx * 7919 + ry * 6271 + 500000);
+  const light = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+  const shadow = Array.from({ length: GRID }, () => Array(GRID).fill(T.EMPTY));
+
+  // Perimeter walls with doorways (DOOR_LO..DOOR_HI open)
+  for (let i = 0; i < GRID; i++) {
+    if (i < DOOR_LO || i > DOOR_HI) {
+      light[0][i] = T.WALL; light[GRID - 1][i] = T.WALL;
+      light[i][0] = T.WALL; light[i][GRID - 1] = T.WALL;
+      shadow[0][i] = T.WALL; shadow[GRID - 1][i] = T.WALL;
+      shadow[i][0] = T.WALL; shadow[i][GRID - 1] = T.WALL;
+    }
+  }
+
+  // Interior walls — much sparser than before.
+  // Per-world chance max 18%. Since a tile is blocked if EITHER world has a wall,
+  // combined-mode blocked rate ≈ 33% which is navigable.
+  const dist = Math.abs(rx) + Math.abs(ry);
+  const wc = Math.min(0.18, 0.06 + dist * 0.015);
+  for (let y = 1; y < GRID - 1; y++) {
+    for (let x = 1; x < GRID - 1; x++) {
+      // Larger central safe zone (5x5 around center)
+      if (Math.abs(x - 7) <= 2 && Math.abs(y - 7) <= 2) continue;
+      // Keep doorway corridors clear (3 tiles deep)
+      const inDoor = (x >= DOOR_LO && x <= DOOR_HI && (y <= 2 || y >= GRID - 3)) ||
+                     (y >= DOOR_LO && y <= DOOR_HI && (x <= 2 || x >= GRID - 3));
+      if (inDoor) continue;
+      if (lrng() < wc) light[y][x] = lrng() < 0.3 ? T.TREE : T.WALL;
+      if (srng() < wc) shadow[y][x] = srng() < 0.3 ? T.TREE : T.WALL;
+    }
+  }
+
+  // Occasional water in far rooms
+  if (dist > 4) {
+    const patch = (grid, rng) => {
+      const cx = 4 + Math.floor(rng() * (GRID - 8));
+      const cy = 4 + Math.floor(rng() * (GRID - 8));
+      for (let dy2 = -1; dy2 <= 1; dy2++)
+        for (let dx2 = -1; dx2 <= 1; dx2++)
+          if (rng() < 0.5 && grid[cy + dy2][cx + dx2] === T.EMPTY)
+            grid[cy + dy2][cx + dx2] = T.WATER;
+    };
+    if (lrng() < 0.25) patch(light, lrng);
+    if (srng() < 0.25) patch(shadow, srng);
+  }
+
+  // ── Connectivity guarantee ──
+  // Ensure a combined-mode path exists from every doorway through the center.
+  // If a tile is blocked in both worlds (or would block the combined path),
+  // clear it in the world where it's least disruptive.
+  // We do this by carving guaranteed horizontal + vertical corridors through the center.
+  const corridor = [7]; // center row/col
+  for (const y of corridor) {
+    for (let x = 1; x < GRID - 1; x++) {
+      // Clear center row in both worlds
+      if (light[y][x] !== T.EMPTY) light[y][x] = T.EMPTY;
+      if (shadow[y][x] !== T.EMPTY) shadow[y][x] = T.EMPTY;
+    }
+  }
+  for (const x of corridor) {
+    for (let y = 1; y < GRID - 1; y++) {
+      if (light[y][x] !== T.EMPTY) light[y][x] = T.EMPTY;
+      if (shadow[y][x] !== T.EMPTY) shadow[y][x] = T.EMPTY;
+    }
+  }
+
+  return { light: { tiles: light, entities: [] }, shadow: { tiles: shadow, entities: [] } };
+}
+
+// ── Dynamic dialogue ────────────────────────────────────────────
+function getDialogue(id, shardsSet, victory, chapter, voidShardsSet, echoShardsSet) {
+  const sc = shardsSet.size;
+  const vc = voidShardsSet ? voidShardsSet.size : 0;
+  const ec = echoShardsSet ? echoShardsSet.size : 0;
+  const hintFor = (locs, collected) => {
+    const uncol = locs.filter(s => !collected.has(s.id));
+    return "Echoes call from: " + uncol.map(s => {
+      let d = "";
+      if (s.ry < 0) d += "north"; if (s.ry > 0) d += "south";
+      if (s.rx < 0) d += (d ? "-" : "") + "west"; if (s.rx > 0) d += (d ? "-" : "") + "east";
+      return d || "nearby";
+    }).join(", ") + ".";
+  };
+  if (id === "watcher") {
+    // Chapter 3 dialogue
+    if (chapter >= 3) {
+      if (victory) return [
+        "Every rift is sealed. Every mirror stilled.",
+        "You walked forward and backward at once.",
+        "You are no longer Riftbound. You are whole.",
+      ];
+      if (ec >= TOTAL_ECHO_SHARDS) return [
+        "All echo shards answer your reflection.",
+        "Come near. Let the mirror finally rest.",
+      ];
+      const eHint = hintFor(ECHO_SHARD_LOCS, echoShardsSet);
+      if (ec >= 3) return [
+        `${ec}/${TOTAL_ECHO_SHARDS} echo shards gathered.`,
+        "The mirror bends but does not break.",
+        "Step onto the eye. Let inversion guide you.",
+        eHint,
+      ];
+      if (ec >= 1) return [
+        `${ec}/${TOTAL_ECHO_SHARDS} echo shards gathered.`,
+        "The reflection learns your name.",
+        "What moves forward, moves back. Trust the mirror.",
+        eHint,
+      ];
+      return [
+        "The void is mended, but a reflection remains.",
+        "Five echo shards shimmer in the mirrored dark.",
+        "Seek the eye tiles. Step on one to enter mirror mode.",
+        "In the mirror, your shadow moves opposite to you.",
+        "Up becomes down. Left becomes right.",
+        "Use this to reach what normal steps cannot.",
+        eHint,
+      ];
+    }
+    // Chapter 2 dialogue
+    if (chapter >= 2) {
+      if (victory) return [
+        "The deep rift closes at last.",
+        "Light and shadow no longer war. They breathe as one.",
+        "You are no longer Riftbound. You are whole.",
+        "Walk on. The worlds remember your name.",
+      ];
+      if (vc >= TOTAL_VOID_SHARDS) return [
+        "All void shards tremble in your wake.",
+        "Come near. Let the deepest wound finally heal.",
+      ];
+      const vHint = hintFor(VOID_SHARD_LOCS, voidShardsSet);
+      if (vc >= 3) return [
+        `${vc}/${TOTAL_VOID_SHARDS} void shards gathered.`,
+        "The deep rift fights you, but you know its language now.",
+        "Push further. The hardest locks guard the final truth.",
+        vHint,
+      ];
+      if (vc >= 1) return [
+        `${vc}/${TOTAL_VOID_SHARDS} void shards gathered.`,
+        "The deeper rift twists harder than the surface.",
+        "Walls within walls. But you have done this before.",
+        vHint,
+      ];
+      return [
+        "The surface rift is mended, but the wound runs deeper.",
+        "Five void shards echo in the dark below.",
+        "They are farther. The paths are crueler.",
+        "But you carry the light of five mended stars.",
+        "Find them. Push them home. End this.",
+        vHint,
+      ];
+    }
+    // Chapter 1 dialogue
+    if (victory) return [
+      "The surface rift mends\u2026 but something stirs beneath.",
+      "A deeper fracture. Older. Hungrier.",
+      "Five void shards call from the deep.",
+      "You must go further, Riftbound.",
+    ];
+    if (sc >= TOTAL_SHARDS) return [
+      "All five shards answer your step.",
+      "Come near. Let the seam remember how to close.",
+    ];
+    const uncol = SHARD_LOCS.filter(s => !shardsSet.has(s.id));
+    const dirs = uncol.map(s => {
+      let d = "";
+      if (s.ry < 0) d += "north"; if (s.ry > 0) d += "south";
+      if (s.rx < 0) d += (d ? "-" : "") + "west"; if (s.rx > 0) d += (d ? "-" : "") + "east";
+      return d || "nearby";
+    });
+    const hint = "The broken stars call from: " + dirs.join(", ") + ".";
+    if (sc >= 3) return [
+      `${sc}/${TOTAL_SHARDS} shards mended.`,
+      "The dark no longer hunts the light. It walks beside it.",
+      "Do not fear the tether. It is proof you can return.",
+      hint,
+    ];
+    if (sc >= 1) return [
+      `${sc}/${TOTAL_SHARDS} shards mended.`,
+      "Each shard remembers a shape you have not yet become.",
+      "Split, push, return. Even the lost can be guided home.",
+      hint,
+    ];
+    return [
+      "Little traveler, you cast two bodies and one will.",
+      "Light is not mercy. Shadow is not sin. Both are doors.",
+      "Each world holds half of what was broken.",
+      "Walk into a half-shard to push it one tile.",
+      "Align both halves on the same square, then step onto them as one.",
+      "Press 1 to loose your Light self for five steps.",
+      "Press 2 to loose your Shadow self for five steps.",
+      "When the tether empties, the wandering self returns.",
+      hint,
+    ];
+  }
+  if (id === "sage") {
+    if (chapter >= 2) {
+      if (vc >= TOTAL_VOID_SHARDS) return [
+        "The void answers you now.",
+        "Return to the Watcher. Let the deep silence become whole.",
+      ];
+      return [
+        "The deeper rift bends the rules you knew.",
+        "Patience still. Precision more.",
+        `${vc}/${TOTAL_VOID_SHARDS} void shards carry your echo.`,
+      ];
+    }
+    if (sc >= TOTAL_SHARDS) return [
+      "The last bell has rung.",
+      "Return to the Watcher. Let the silence become whole.",
+    ];
+    return [
+      "A wall is only a question asked in stone.",
+      "Answer with patience. Push only what can be brought back.",
+      `${sc}/${TOTAL_SHARDS} shards carry your name.`,
+    ];
+  }
+  return ["..."];
+}
+
+// ── Component ───────────────────────────────────────────────────
 export default function SoulSearcher() {
   const cvs = useRef(null);
   const [gs, setGs] = useState("intro");
-  const [introLine, setIntroLine] = useState(0);
-  const [area, setArea] = useState(1);
+  const [seed] = useState(42);
   const [roomX, setRoomX] = useState(0);
   const [roomY, setRoomY] = useState(0);
-  const [room, setRoom] = useState(() => generateRoom(0, 0, 1, 42));
-  const [plX, setPlX] = useState(Math.floor(ROOM_COLS / 2));
-  const [plY, setPlY] = useState(Math.floor(ROOM_ROWS / 2) + 1);
-  const [resolve, setResolve] = useState(100);
-  const [held, setHeld] = useState(0);
-  const [guided, setGuided] = useState(0);
+  const [lightWorld, setLightWorld] = useState(null);
+  const [shadowWorld, setShadowWorld] = useState(null);
+  const [lightPos, setLightPos] = useState({ x: 7, y: 7 });
+  const [shadowPos, setShadowPos] = useState({ x: 7, y: 7 });
+  const [splitMode, setSplitMode] = useState(null); // "light" or "shadow"
+  const [splitSteps, setSplitSteps] = useState(0);
+  const [splitAnchor, setSplitAnchor] = useState(null);
+  const [hp, setHp] = useState(MAX_HEARTS);
+  const [ambushed, setAmbushed] = useState(false); // survived the first catch
   const [msg, setMsg] = useState("");
-  const [enc, setEnc] = useState(null);
-  const [encCh, setEncCh] = useState(0);
-  const [encG, setEncG] = useState("");
-  const [encR, setEncR] = useState(null);
-  const [journal, setJournal] = useState([]);
-  const [jOpen, setJOpen] = useState(false);
-  const [jScroll, setJScroll] = useState(0);
-  const [jTab, setJTab] = useState(0); // 0 = Progress, 1 = Encounters
-  const [tend, setTend] = useState({ confront: 0, comprehend: 0, absolve: 0, endure: 0 });
-  const [banished, setBanished] = useState(new Set());
-  const [usedW, setUsedW] = useState(new Set());
-  const [loreN, setLoreN] = useState(0);
-  const [loreFrags, setLoreFrags] = useState([]);
-  const [keeperT, setKeeperT] = useState(0);
-  const [keeperMsg, setKeeperMsg] = useState(null);
-  const [bossTrophies, setBossTrophies] = useState([]);
-  const [potions, setPotions] = useState(0);
-  const [homeView, setHomeView] = useState(false);
-  const [savedRoom, setSavedRoom] = useState(null);
-  const [gateOpen, setGateOpen] = useState(false);
-  const [seed] = useState(42);
-  const [visited, setVisited] = useState(new Set(["0,0"])); // Track explored rooms
-  const [roomInfo, setRoomInfo] = useState({}); // {key: {shrine:bool, demon:bool}} for minimap
-  const [dmgFlash, setDmgFlash] = useState(0); // damage flash timer
-  const [lastResolve, setLastResolve] = useState(100); // track resolve changes for flash
-  const [steps, setSteps] = useState(0); // total steps taken
-  const [deaths, setDeaths] = useState(0); // times resolve hit 0
-  const [victory, setVictory] = useState(false); // beaten the Devourer
+  const [dialogueLines, setDialogueLines] = useState(null);
+  const [dialogueLine, setDialogueLine] = useState(0);
+  const [shards, setShards] = useState(new Set());
+  const [shardMsg, setShardMsg] = useState(null); // pickup notification
+  const [caughtMsg, setCaughtMsg] = useState(null); // ghoul catch modal
+  const [victory, setVictory] = useState(false);
+  const [visited, setVisited] = useState(new Set(["0,0"]));
+  const [steps, setSteps] = useState(0);
+  const [chapter, setChapter] = useState(1);
+  const [voidShards, setVoidShards] = useState(new Set());
+  const [echoShards, setEchoShards] = useState(new Set());
+  const [mirrorSteps, setMirrorSteps] = useState(0); // >0 = mirror mode active
+  const [mirrorAnchor, setMirrorAnchor] = useState(null);
+  const [lDoorsLatched, setLDoorsLatched] = useState(false);
+  const [sDoorsLatched, setSDoorsLatched] = useState(false);
+  const [linkedPlates, setLinkedPlates] = useState(false);
 
-  const choices = ["Confront", "Comprehend", "Absolve", "Endure"];
-  const cDesc = ["Face it directly", "Seek to understand", "Offer mercy", "Stand firm"];
-  const INTRO = ["You died.", "", "You don't remember how.", "", "But you woke up.", "", "Most souls don't wake up.", "They wander. They fade.", "", "You are different.", "", "You are a Searcher."];
+  useEffect(() => { const r = generateDualRoom(0, 0, 42, chapter); setLightWorld(r.light); setShadowWorld(r.shadow); setLinkedPlates(!!r.linkedPlates); }, []);
 
-  // ── Save/Load ──────────────────────────────────────────────
-  const saveGame = useCallback(() => {
-    const state = {
-      gs, area, roomX, roomY, plX, plY, resolve, held, guided,
-      loreN, loreFrags: [...loreFrags], keeperT, potions, gateOpen,
-      banished: [...banished], visited: [...visited], steps, deaths,
-      tend, journal, bossTrophies, seed, victory
-    };
-    try { localStorage.setItem("soul_searcher_save", JSON.stringify(state)); } catch(e) {}
-  }, [gs, area, roomX, roomY, plX, plY, resolve, held, guided, loreN, loreFrags, keeperT, potions, gateOpen, banished, visited, steps, deaths, tend, journal, bossTrophies, seed, victory]);
-
-  const loadGame = useCallback(() => {
-    try {
-      const raw = localStorage.getItem("soul_searcher_save");
-      if (!raw) return false;
-      const s = JSON.parse(raw);
-      setGs(s.gs || "overworld"); setArea(s.area || 1);
-      setRoomX(s.roomX || 0); setRoomY(s.roomY || 0);
-      setRoom(generateRoom(s.roomX || 0, s.roomY || 0, s.area || 1, s.seed || 42));
-      setPlX(s.plX || 9); setPlY(s.plY || 10);
-      setResolve(s.resolve ?? 100); setHeld(s.held || 0); setGuided(s.guided || 0);
-      setLoreN(s.loreN || 0); setLoreFrags(s.loreFrags || []);
-      setKeeperT(s.keeperT || 0); setPotions(s.potions || 0);
-      setGateOpen(s.gateOpen || false);
-      setBanished(new Set(s.banished || []));
-      setVisited(new Set(s.visited || ["0,0"]));
-      setSteps(s.steps || 0); setDeaths(s.deaths || 0);
-      setTend(s.tend || { confront: 0, comprehend: 0, absolve: 0, endure: 0 });
-      setJournal(s.journal || []); setBossTrophies(s.bossTrophies || []);
-      setVictory(s.victory || false);
-      setMsg("Your memory returns.");
-      return true;
-    } catch(e) { return false; }
-  }, []);
-
-  // Auto-save when entering home
-  useEffect(() => {
-    if (homeView) saveGame();
-  }, [homeView, saveGame]);
-
-  // Trigger flash when resolve drops — single frame, no animation
-  useEffect(() => {
-    if (resolve < lastResolve) {
-      setDmgFlash(1);
-    }
-    setLastResolve(resolve);
-  }, [resolve, lastResolve]);
-
-  // Game over when resolve hits 0
-  useEffect(() => {
-    if (resolve <= 0 && gs !== "intro" && gs !== "gameover") {
-      setGs("gameover");
-      setDeaths(d => d + 1);
-    }
-  }, [resolve, gs]);
-
-  // Current objective for HUD display — always tell the player exactly what to do
-  const getObjective = useCallback(() => {
-    if (keeperT === 0) return "> Talk to the Keeper (walk near, press Confirm)";
-    if (guided === 0 && held === 0) return "> Find a glowing soul and press Confirm near it";
-    if (guided === 0 && held > 0) return `> Bring ${held} soul${held > 1 ? "s" : ""} to a shrine (tall stone monument)`;
-    if (loreN < 1) return "> Walk near a demon and press Confirm to face it";
-    if (loreN < 7) return `> Defeat different demons for truth (${loreN}/7 found)`;
-    if (area === 1 && gateOpen) return "> The gate is open! Find it southeast at (2,2)";
-    if (area === 1 && !gateOpen) return "> The gate should be opening...";
-    if (area === 2 && bossTrophies.length === 0) return "> Find the Devourer — far north at (0,-3)";
-    if (victory) return "> Free to explore. Visit the Keeper.";
-    return "> Keep exploring.";
-  }, [keeperT, guided, held, loreN, area, gateOpen, bossTrophies, victory]);
-
-  const getW = useCallback(() => { const a = WHISPERS.filter((_, i) => !usedW.has(i)); if (!a.length) { setUsedW(new Set()); return pick(WHISPERS); } const idx = WHISPERS.indexOf(pick(a)); setUsedW(s => new Set([...s, idx])); return WHISPERS[idx]; }, [usedW]);
-
-  useEffect(() => { if (area === 1 && loreN >= 7 && !gateOpen) { setGateOpen(true); setMsg("A rumble. The gate opens. The Keeper was right."); } }, [loreN, gateOpen, area]);
-
-  // ── Draw sprite ──────────────────────────────────────────────
   const ds = useCallback((ctx, key, x, y, sc = 1) => {
     const d = S[key]; if (!d) return;
-    const sz = d.length;
-    for (let r = 0; r < sz; r++) for (let c = 0; c < d[r].length; c++)
+    for (let r = 0; r < d.length; r++) for (let c = 0; c < d[r].length; c++)
       if (d[r][c] === "1") ctx.fillRect(x + c * sc, y + r * sc, sc, sc);
   }, []);
 
-  const wrap = useCallback((ctx, t, mw) => {
-    const w = t.split(" "); let l = [], c = "";
-    for (const x of w) { const test = c ? c + " " + x : x; if (ctx.measureText(test).width > mw) { l.push(c); c = x; } else c = test; }
-    if (c) l.push(c); return l;
+  const wrap = useCallback((ctx, text, maxW) => {
+    const words = text.split(" "); const lines = []; let line = "";
+    for (const w of words) { const t = line ? line + " " + w : w; if (ctx.measureText(t).width > maxW) { if (line) lines.push(line); line = w; } else line = t; }
+    if (line) lines.push(line); return lines;
   }, []);
 
-  // ── Pixel-perfect circle (no anti-aliasing for e-ink) ──────
-  const fillCircle = useCallback((ctx, cx, cy, r) => {
-    const ri = Math.ceil(r);
-    for (let dy = -ri; dy <= ri; dy++) {
-      for (let dx = -ri; dx <= ri; dx++) {
-        if (dx * dx + dy * dy <= r * r) {
-          ctx.fillRect(Math.floor(cx + dx), Math.floor(cy + dy), 1, 1);
-        }
-      }
-    }
-  }, []);
-
-  // ── Pixel-perfect ellipse (no anti-aliasing for e-ink) ────
-  const fillEllipse = useCallback((ctx, cx, cy, rx, ry) => {
-    const rxi = Math.ceil(rx), ryi = Math.ceil(ry);
-    for (let dy = -ryi; dy <= ryi; dy++) {
-      for (let dx = -rxi; dx <= rxi; dx++) {
-        if ((dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1) {
-          ctx.fillRect(Math.floor(cx + dx), Math.floor(cy + dy), 1, 1);
-        }
-      }
-    }
-  }, []);
-
-  // ── Draw water dither pattern ────────────────────────────────
-  const drawWater = useCallback((ctx, px, py) => {
-    for (let dy = 0; dy < TILE; dy += 3)
-      for (let dx = (dy % 6 < 3 ? 0 : 1); dx < TILE; dx += 3)
-        ctx.fillRect(px + dx, py + dy, 1, 1);
-    // Small wave lines
-    for (let i = 0; i < 3; i++) {
-      const wy = py + 4 + i * 7;
-      ctx.fillRect(px + 3, wy, 5, 1);
-      ctx.fillRect(px + 12, wy + 2, 6, 1);
-    }
-  }, []);
-
-  // ── Draw ground texture ──────────────────────────────────
-  const drawGround = useCallback((ctx, areaNum) => {
-    ctx.fillStyle = BLK;
-    if (areaNum === 1) {
-      // Meadow: sparse grass tufts
-      const rng = mulberry32(42);
-      for (let i = 0; i < 120; i++) {
-        const gx = ROOM_OX + Math.floor(rng() * ROOM_COLS * TILE);
-        const gy = ROOM_OY + Math.floor(rng() * ROOM_H);
-        if (rng() < 0.5) {
-          ctx.fillRect(gx, gy, 1, 2);
-          ctx.fillRect(gx - 1, gy + 1, 1, 1);
-          ctx.fillRect(gx + 1, gy + 1, 1, 1);
-        } else {
-          ctx.fillRect(gx, gy, 1, 1);
-        }
-      }
-    } else {
-      // Ashen Forest: ash particles
-      const rng = mulberry32(99);
-      for (let i = 0; i < 80; i++) {
-        const ax = ROOM_OX + Math.floor(rng() * ROOM_COLS * TILE);
-        const ay = ROOM_OY + Math.floor(rng() * ROOM_H);
-        ctx.fillRect(ax, ay, 1, 1);
-      }
-    }
-  }, []);
-
-  // ── Draw ornamental border ──────────────────────────────────
-  const drawBorder = useCallback((ctx, x, y, w, h) => {
-    // Double-line border
-    ctx.strokeStyle = BLK;
-    ctx.strokeRect(x, y, w, h);
-    ctx.strokeRect(x + 3, y + 3, w - 6, h - 6);
-    // Corner decorations
-    const cs = 6;
-    // Top-left
-    ctx.fillRect(x - 1, y - 1, cs, 2); ctx.fillRect(x - 1, y - 1, 2, cs);
-    // Top-right
-    ctx.fillRect(x + w - cs + 1, y - 1, cs, 2); ctx.fillRect(x + w - 1, y - 1, 2, cs);
-    // Bottom-left
-    ctx.fillRect(x - 1, y + h - 1, cs, 2); ctx.fillRect(x - 1, y + h - cs + 1, 2, cs);
-    // Bottom-right
-    ctx.fillRect(x + w - cs + 1, y + h - 1, cs, 2); ctx.fillRect(x + w - 1, y + h - cs + 1, 2, cs);
-  }, []);
-
-  // ── Draw decorative divider ──────────────────────────────────
-  const drawDivider = useCallback((ctx, y, x1, x2) => {
-    const cx = (x1 + x2) / 2;
-    ctx.fillRect(x1, y, x2 - x1, 1);
-    // Diamond in center
-    ctx.fillRect(cx - 1, y - 2, 2, 1);
-    ctx.fillRect(cx - 2, y - 1, 4, 1);
-    ctx.fillRect(cx - 2, y + 1, 4, 1);
-    ctx.fillRect(cx - 1, y + 2, 2, 1);
-  }, []);
-
-  // ── Draw ink blot (resolve indicator) ──────────────────────
-  // Spreads horizontally across the width. At full health it's a tiny dot.
-  // As damage increases it bleeds outward as a wide, flat ink stain.
-  const drawInkBlot = useCallback((ctx, cx, cy, damage, maxW, maxH) => {
-    if (damage <= 0) {
-      ctx.fillStyle = BLK;
-      fillCircle(ctx, cx, cy, 2);
-      return;
-    }
-
-    const t = Math.min(damage, 100) / 100;
-    const baseW = 2 + t * (maxW - 2); // horizontal spread
-    const baseH = 2 + t * (maxH - 2); // vertical spread (much smaller)
-
-    const prng = (i) => {
-      let x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
-      return x - Math.floor(x);
-    };
-
-    ctx.fillStyle = BLK;
-
-    // Main body: wide horizontal ellipses with asymmetric offsets
-    const lobeCount = 10;
-    for (let i = 0; i < lobeCount; i++) {
-      const angle = (i / lobeCount) * Math.PI * 2 + prng(i + 1) * 0.4;
-      // Bias stretch toward horizontal
-      const hStretch = 0.4 + prng(i + 10) * 0.8;
-      const vStretch = 0.2 + prng(i + 15) * 0.5;
-      const lobeW = baseW * hStretch;
-      const lobeH = baseH * vStretch;
-      const offX = (prng(i + 30) - 0.5) * baseW * 0.25;
-      const offY = (prng(i + 40) - 0.5) * baseH * 0.2;
-
-      fillEllipse(ctx, cx + offX + Math.cos(angle) * lobeW * 0.2,
-                       cy + offY + Math.sin(angle) * lobeH * 0.15,
-                       lobeW, lobeH);
-    }
-
-    // Core ellipse
-    fillEllipse(ctx, cx, cy, baseW * 0.4, baseH * 0.45);
-
-    // Satellite droplets — spread horizontally
-    if (t > 0.3) {
-      const dropCount = Math.floor((t - 0.3) * 16);
-      for (let i = 0; i < dropCount; i++) {
-        const angle = prng(i + 100) * Math.PI * 2;
-        const distX = baseW * (0.6 + prng(i + 110) * 0.5);
-        const distY = baseH * (0.3 + prng(i + 115) * 0.4);
-        const r = 1 + prng(i + 120) * (t * 3);
-        fillCircle(ctx, cx + Math.cos(angle) * distX,
-                        cy + Math.sin(angle) * distY, r);
-      }
-    }
-
-    // Horizontal tendrils at high damage — like ink bleeding along paper fibers
-    if (t > 0.4) {
-      const tendrilCount = Math.floor((t - 0.4) * 12);
-      for (let i = 0; i < tendrilCount; i++) {
-        const side = prng(i + 200) < 0.5 ? -1 : 1;
-        const len = baseW * (0.4 + prng(i + 210) * 0.6);
-        const yOff = (prng(i + 220) - 0.5) * baseH * 0.6;
-        ctx.fillRect(Math.floor(cx), Math.floor(cy + yOff), Math.floor(side * len), 1 + Math.floor(t));
-      }
-    }
-  }, [fillCircle, fillEllipse]);
-
-  // ── Render ─────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────
   const render = useCallback(() => {
     const c = cvs.current; if (!c) return;
     const ctx = c.getContext("2d");
     ctx.imageSmoothingEnabled = false;
     ctx.fillStyle = WHT; ctx.fillRect(0, 0, W, H); ctx.fillStyle = BLK;
 
-    // INTRO
     if (gs === "intro") {
       ctx.fillStyle = BLK; ctx.fillRect(0, 0, W, H); ctx.fillStyle = WHT;
+      ctx.font = "bold 24px 'Courier New',monospace";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      // Show only the current line and the one before it (no alpha — 1-bit)
-      for (let i = 0; i <= introLine && i < INTRO.length; i++) {
-        if (i === introLine) {
-          ctx.font = "bold 20px 'Courier New',monospace";
-          ctx.fillText(INTRO[i], W / 2, 180 + i * 38);
-        } else if (i >= introLine - 2) {
-          // Older lines shown smaller to simulate fade
-          ctx.font = "14px 'Courier New',monospace";
-          ctx.fillText(INTRO[i], W / 2, 180 + i * 38);
-        }
-      }
-      if (introLine >= INTRO.length - 1) {
-        // Draw small player sprite in white at bottom
-        ctx.fillStyle = WHT;
-        ds(ctx, "player", W / 2 - 24, 610, 2);
-        ctx.font = "bold 14px 'Courier New',monospace";
-        const hasSave = !!localStorage.getItem("soul_searcher_save");
-        ctx.fillText(hasSave ? "[ ENTER to continue ]" : "[ ENTER to begin ]", W / 2, 680);
-        if (hasSave) {
-          ctx.font = "italic 12px 'Courier New',monospace";
-          ctx.fillText("Your grave remembers.", W / 2, 704);
-        }
-      }
-      ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; return;
+      ctx.fillText("Riftbound.", W / 2, H / 2 - 80);
+      ctx.fillText("Two halves. One truth.", W / 2, H / 2 - 30);
+      ds(ctx, "player", W / 2 - 12, H / 2 + 30);
+      ctx.font = "14px 'Courier New',monospace";
+      ctx.fillText("[ ENTER ]", W / 2, H / 2 + 110);
+      ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; return;
     }
 
-    // HOME VIEW
-    if (homeView) {
-      ctx.textBaseline = "alphabetic";
-      // Framed grave portrait
-      drawBorder(ctx, W / 2 - 56, 22, 112, 108);
-      ds(ctx, "grave", W / 2 - 48, 30, 4);
-      ctx.font = "italic 16px 'Courier New',monospace"; ctx.textAlign = "center";
-      ctx.fillText("Your Grave", W / 2, 148);
-      ctx.font = "italic 12px 'Courier New',monospace";
-      ctx.fillText("No name. Not yet.", W / 2, 166);
-      drawDivider(ctx, 178, 40, W - 40);
-
-      // Candles
-      ctx.font = "bold 13px 'Courier New',monospace";
-      ctx.fillText("Fragments of Truth", W / 2, 198);
-      const cw = 24, gap = 6, total = TOTAL_LORE * (cw + gap);
-      const sx = W / 2 - total / 2;
-      for (let i = 0; i < TOTAL_LORE; i++) {
-        const cx = sx + i * (cw + gap);
-        if (i < loreN) {
-          // Lit candle: flame + body
-          ctx.fillRect(cx + 10, 218, 4, 14);
-          fillEllipse(ctx, cx + 12, 216, 5, 7);
-        } else {
-          // Unlit: just body
-          ctx.fillRect(cx + 10, 222, 4, 10);
-          ctx.strokeRect(cx + 8, 220, 8, 2);
-        }
+    if (gs === "victory") {
+      ctx.fillStyle = BLK; ctx.fillRect(0, 0, W, H); ctx.fillStyle = WHT;
+      ctx.font = "bold 20px 'Courier New',monospace";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      if (chapter >= 3) {
+        ctx.fillText("Every rift is sealed.", W / 2, 180);
+        ctx.font = "16px 'Courier New',monospace";
+        ctx.fillText("Fifteen shards. Whole.", W / 2, 230);
+        ctx.fillText("The mirror, the void, the light.", W / 2, 270);
+        ctx.fillText("All one.", W / 2, 300);
+        ds(ctx, "player", W / 2 - 36, 350);
+        ctx.fillStyle = BLK; ctx.fillRect(W / 2 + 4, 350, TILE, TILE);
+        ctx.fillStyle = WHT; ds(ctx, "player", W / 2 + 4, 350);
+        ctx.font = "italic 14px 'Courier New',monospace";
+        ctx.fillText("You are no longer Riftbound.", W / 2, 430);
+        ctx.fillText("You are whole.", W / 2, 460);
+        ctx.font = "12px 'Courier New',monospace";
+        ctx.fillText(`${steps} steps \u00b7 ${visited.size} rooms`, W / 2, 520);
+        ctx.font = "14px 'Courier New',monospace";
+        ctx.fillText("[ ENTER to explore ]", W / 2, 570);
+      } else if (chapter === 2) {
+        ctx.fillText("The void is sealed.", W / 2, 180);
+        ctx.font = "16px 'Courier New',monospace";
+        ctx.fillText("But a reflection stirs\u2026", W / 2, 240);
+        ctx.fillText("What moves forward, moves back.", W / 2, 280);
+        ds(ctx, "player", W / 2 - 36, 340);
+        ctx.fillStyle = BLK; ctx.fillRect(W / 2 + 4, 340, TILE, TILE);
+        ctx.fillStyle = WHT; ds(ctx, "player", W / 2 + 4, 340);
+        ctx.font = "bold 16px 'Courier New',monospace";
+        ctx.fillText("Chapter Three", W / 2, 420);
+        ctx.font = "italic 14px 'Courier New',monospace";
+        ctx.fillText("The Mirror", W / 2, 450);
+        ctx.font = "12px 'Courier New',monospace";
+        ctx.fillText(`${steps} steps \u00b7 ${visited.size} rooms`, W / 2, 510);
+        ctx.font = "14px 'Courier New',monospace";
+        ctx.fillText("[ ENTER to continue ]", W / 2, 570);
+      } else {
+        ctx.fillText("The surface rift closes.", W / 2, 180);
+        ctx.font = "16px 'Courier New',monospace";
+        ctx.fillText("Five shards. Mended.", W / 2, 240);
+        ctx.fillText("But something stirs beneath\u2026", W / 2, 280);
+        ds(ctx, "player", W / 2 - 36, 340);
+        ctx.fillStyle = BLK; ctx.fillRect(W / 2 + 4, 340, TILE, TILE);
+        ctx.fillStyle = WHT; ds(ctx, "player", W / 2 + 4, 340);
+        ctx.font = "bold 16px 'Courier New',monospace";
+        ctx.fillText("Chapter Two", W / 2, 420);
+        ctx.font = "italic 14px 'Courier New',monospace";
+        ctx.fillText("The Deeper Rift", W / 2, 450);
+        ctx.font = "12px 'Courier New',monospace";
+        ctx.fillText(`${steps} steps \u00b7 ${visited.size} rooms`, W / 2, 510);
+        ctx.font = "14px 'Courier New',monospace";
+        ctx.fillText("[ ENTER to continue ]", W / 2, 570);
       }
-      ctx.fillRect(40, 245, W - 80, 1);
-
-      // Stats
-      ctx.font = "14px 'Courier New',monospace"; ctx.textAlign = "left";
-      ctx.fillText(`Souls Guided: ${guided}`, 50, 272);
-      ctx.fillText(`Potions: ${potions}`, 250, 272);
-      ctx.fillText(`Steps: ${steps}`, 50, 297);
-      ctx.fillText(`Deaths: ${deaths}`, 250, 297);
-      ctx.fillText(`Area: ${area === 1 ? "Sacred Meadow" : "Ashen Forest"}`, 50, 322);
-      ctx.font = "italic 11px 'Courier New',monospace"; ctx.fillStyle = BLK;
-      ctx.fillText("Game saved.", W / 2, 340);
-      ctx.fillStyle = BLK;
-
-      // Resolve ink blot
-      ctx.textAlign = "center"; ctx.font = "bold 13px 'Courier New',monospace";
-      ctx.fillText("Resolve", W / 2, 358);
-      const homeDamage = 100 - resolve;
-      drawInkBlot(ctx, W / 2, 400, homeDamage, 80, 30);
-      ctx.fillStyle = BLK;
-
-      // Boss trophies
-      ctx.fillRect(40, 448, W - 80, 1);
-      ctx.font = "bold 14px 'Courier New',monospace"; ctx.textAlign = "center";
-      ctx.fillText("Boss Trophies", W / 2, 470);
-      if (!bossTrophies.length) { ctx.font = "italic 13px 'Courier New',monospace"; ctx.fillText("None yet.", W / 2, 498); }
-      else { bossTrophies.forEach((t, i) => { ds(ctx, t.sprite, W / 2 - bossTrophies.length * 30 + i * 60, 480, 2); }); }
-
-      // Lore
-      const ly = bossTrophies.length ? 530 : 518;
-      if (loreFrags.length) {
-        ctx.fillRect(40, ly, W - 80, 1);
-        ctx.font = "bold 13px 'Courier New',monospace"; ctx.textAlign = "center";
-        ctx.fillText("What You've Learned", W / 2, ly + 22);
-        ctx.font = "12px 'Courier New',monospace"; ctx.textAlign = "left";
-        loreFrags.slice(0, 7).forEach((f, i) => {
-          const fl = wrap(ctx, `${i + 1}. ${f}`, W - 100);
-          fl.slice(0, 2).forEach((l, li) => ctx.fillText(l, 50, ly + 42 + i * 32 + li * 14));
-        });
-      }
-
-      ctx.fillRect(0, H - 24, W, 1);
-      ctx.font = "13px 'Courier New',monospace"; ctx.textAlign = "center";
-      ctx.fillText("ESC — Open eyes and return", W / 2, H - 6);
-      ctx.textAlign = "left"; return;
+      ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; return;
     }
 
-    // KEEPER
-    if (keeperMsg !== null) {
-      ctx.fillStyle = WHT; ctx.fillRect(25, 80, W - 50, 540); ctx.fillStyle = BLK;
-      drawBorder(ctx, 28, 83, W - 56, 534);
-      ds(ctx, "keeper", W / 2 - 36, 108, 3);
-      ctx.font = "bold 18px 'Courier New',monospace"; ctx.textAlign = "center";
-      ctx.fillText("The Keeper", W / 2, 195);
-      drawDivider(ctx, 205, W / 2 - 80, W / 2 + 80);
-      ctx.font = "italic 14px 'Courier New',monospace";
-      const kl = wrap(ctx, keeperMsg, W - 120);
-      kl.forEach((l, i) => ctx.fillText(l, W / 2, 235 + i * 24));
-      drawDivider(ctx, 235 + kl.length * 24 + 20, 120, W - 120);
-      ctx.font = "bold 14px 'Courier New',monospace";
-      ctx.fillText("ENTER to continue", W / 2, 235 + kl.length * 24 + 45);
-      ctx.textAlign = "left"; return;
-    }
+    if (!lightWorld || !shadowWorld) return;
 
-    // OVERWORLD
-    if (gs === "overworld") {
-      // Decorative header
-      ctx.font = "bold 16px 'Courier New',monospace"; ctx.textAlign = "center";
-      ctx.fillText(area === 1 ? "~ Sacred Meadow ~" : "~ Ashen Forest ~", W / 2, 22);
-      drawDivider(ctx, 32, 40, W - 40);
+    const drawShardTileMarker = (px, py, fg) => {
+      ctx.fillStyle = fg;
+      const t = 5;
+      ctx.fillRect(px + 1, py + 1, t, 1); ctx.fillRect(px + 1, py + 1, 1, t);
+      ctx.fillRect(px + TILE - t - 1, py + 1, t, 1); ctx.fillRect(px + TILE - 2, py + 1, 1, t);
+      ctx.fillRect(px + 1, py + TILE - 2, t, 1); ctx.fillRect(px + 1, py + TILE - t - 1, 1, t);
+      ctx.fillRect(px + TILE - t - 1, py + TILE - 2, t, 1); ctx.fillRect(px + TILE - 2, py + TILE - t - 1, 1, t);
+      drawPixelDiamond(ctx, px + 12, py + 12, 10, false);
+      drawPixelDiamond(ctx, px + 12, py + 12, 8, false);
+      drawPixelDiamond(ctx, px + 12, py + 12, 3, true);
+    };
 
-      // Ornamental room border
-      drawBorder(ctx, ROOM_OX - 4, ROOM_OY - 4, ROOM_COLS * TILE + 8, ROOM_H + 8);
+    const drawSplitMeter = (mode, oy, inverse) => {
+      const active = splitMode === mode;
+      const remaining = active ? splitSteps : 0;
+      const x = VIEW_OX - 28, y0 = oy + VIEW_H / 2 - 34;
+      if (inverse) {
+        ctx.fillStyle = BLK;
+        ctx.fillRect(x - 9, y0 - 8, 18, 84);
+        ctx.strokeStyle = BLK; ctx.lineWidth = 1;
+        ctx.strokeRect(x - 9, y0 - 8, 18, 84);
+      }
+      for (let i = 0; i < SPLIT_STEPS; i++) {
+        const filled = i < remaining;
+        ctx.fillStyle = inverse ? WHT : BLK;
+        drawPixelDiamond(ctx, x, y0 + i * 16, 5, filled);
+      }
+    };
+
+    // ─── Compute pressure plate state for each world ───
+    // Plates in light world open doors in shadow world, and vice versa.
+    // Latched doors stay open for the rest of the room visit.
+    // In linked mode, live pressure requires BOTH plates pressed simultaneously.
+    const lLiveR = lightWorld && isPlatePressed(lightWorld, lightPos);
+    const sLiveR = shadowWorld && isPlatePressed(shadowWorld, shadowPos);
+    const bothLiveR = lLiveR && sLiveR;
+    const lightPlatePressed = sDoorsLatched || (linkedPlates ? bothLiveR : lLiveR);
+    const shadowPlatePressed = lDoorsLatched || (linkedPlates ? bothLiveR : sLiveR);
+
+    // ─── Draw one world ───
+    const drawWorld = (world, pos, oy, isShadow, frozen, doorsOpen) => {
+      const fg = isShadow ? WHT : BLK;
+      const bg = isShadow ? BLK : WHT;
+      ctx.fillStyle = bg; ctx.fillRect(VIEW_OX, oy, VIEW_W, VIEW_H);
+      ctx.strokeStyle = fg; ctx.lineWidth = 1;
+      ctx.strokeRect(VIEW_OX - 1, oy - 1, VIEW_W + 2, VIEW_H + 2);
 
       // Ground texture
-      drawGround(ctx, area);
+      ctx.fillStyle = fg;
+      const gr = mulberry32(seed + roomX * 100 + roomY + (isShadow ? 99999 : 0));
+      for (let i = 0; i < (isShadow ? 15 : 30); i++) {
+        ctx.fillRect(VIEW_OX + Math.floor(gr() * VIEW_W), oy + Math.floor(gr() * VIEW_H),
+          1, isShadow ? 1 : (gr() < 0.5 ? 2 : 1));
+      }
 
-      // Edge indicators (exits)
-      ctx.font = "12px 'Courier New',monospace"; ctx.textAlign = "center"; ctx.fillStyle = BLK;
-      ctx.fillText("▲", W / 2, ROOM_OY - 8);
-      ctx.fillText("▼", W / 2, ROOM_OY + ROOM_H + 14);
-      ctx.fillStyle = BLK;
-      ctx.save(); ctx.translate(ROOM_OX - 10, ROOM_OY + ROOM_H / 2);
-      ctx.rotate(-Math.PI / 2); ctx.fillText("◄", 0, 0); ctx.restore();
-      ctx.save(); ctx.translate(ROOM_OX + ROOM_COLS * TILE + 12, ROOM_OY + ROOM_H / 2);
-      ctx.rotate(Math.PI / 2); ctx.fillText("►", 0, 0); ctx.restore();
-      ctx.fillStyle = BLK;
-
-      // Draw tiles
-      for (let y = 0; y < ROOM_ROWS; y++) for (let x = 0; x < ROOM_COLS; x++) {
-        const tile = room.tiles[y]?.[x];
-        const px = ROOM_OX + x * TILE, py = ROOM_OY + y * TILE;
-        if (tile === 1) ds(ctx, "tree", px, py);
-        else if (tile === 4) ds(ctx, "deadtree", px, py);
-        else if (tile === 2) drawWater(ctx, px, py);
-        else if (tile === 3) ds(ctx, "rock", px, py);
+      // Tiles
+      for (let y = 0; y < GRID; y++) for (let x = 0; x < GRID; x++) {
+        const tile = world.tiles[y][x];
+        const px = VIEW_OX + x * TILE, py = oy + y * TILE;
+        ctx.fillStyle = fg;
+        if (tile === T.WALL) ds(ctx, "wall", px, py);
+        else if (tile === T.TREE) ds(ctx, "tree", px, py);
+        else if (tile === T.DOOR) {
+          if (doorsOpen) {
+            // Open door: faint dotted outline
+            for (let di = 0; di < TILE; di += 4) {
+              ctx.fillRect(px + di, py, 2, 1);
+              ctx.fillRect(px + di, py + TILE - 1, 2, 1);
+              ctx.fillRect(px, py + di, 1, 2);
+              ctx.fillRect(px + TILE - 1, py + di, 1, 2);
+            }
+          } else {
+            ds(ctx, "door", px, py);
+          }
+        }
+        else if (tile === T.SWITCH) ds(ctx, "plate", px, py);
+        else if (tile === T.MIRROR) ds(ctx, "mirror_tile", px, py);
+        else if (tile === T.WATER) {
+          for (let wy = 3; wy < TILE; wy += 6)
+            for (let wx = 0; wx < TILE; wx++)
+              ctx.fillRect(px + wx, py + wy + ((wx >> 2) & 1), 1, 1);
+        }
       }
 
       // Entities
-      room.entities.forEach(e => {
-        if (banished.has(e.id)) return;
-        const px = ROOM_OX + e.x * TILE, py = ROOM_OY + e.y * TILE;
-        if (e.type === "grave") ds(ctx, "grave", px, py);
-        else if (e.type === "soul") ds(ctx, "soul", px, py);
-        else if (e.type === "shrine") ds(ctx, "shrine", px, py);
-        else if (e.type === "keeper") ds(ctx, "keeper", px, py);
-        else if (e.type === "inscription") ds(ctx, "inscription", px, py);
-        else if (e.type === "gate") { if (gateOpen) ds(ctx, "gate", px, py); else ctx.strokeRect(px + 4, py + 4, TILE - 8, TILE - 8); }
-        else if (e.type === "demon" && S[e.subtype]) ds(ctx, e.subtype, px, py);
+      ctx.fillStyle = fg;
+      world.entities.forEach(e => {
+        const ex = VIEW_OX + e.x * TILE, ey2 = oy + e.y * TILE;
+        ds(ctx, e.sprite || "npc", ex, ey2);
+        if (e.type === "half_light" || e.type === "half_shadow") drawShardTileMarker(ex, ey2, fg);
       });
 
       // Player
-      ds(ctx, "player", ROOM_OX + plX * TILE, ROOM_OY + plY * TILE);
+      ctx.fillStyle = fg;
+      const ppx = VIEW_OX + pos.x * TILE, ppy = oy + pos.y * TILE;
+      ds(ctx, "player", ppx, ppy);
 
-      // ── HUD ──
-      ctx.fillRect(0, HUD_TOP, W, 2);
-
-      // ── Left: Minimap ──
-      const MM_SIZE = 7; // 7x7 grid of rooms
-      const MM_CELL = 18;
-      const MM_X = 16;
-      const MM_Y = HUD_TOP + 12;
-      const MM_W = MM_SIZE * MM_CELL;
-
-      // Minimap border
-      ctx.strokeRect(MM_X - 1, MM_Y - 1, MM_W + 2, MM_W + 2);
-
-      // Draw room cells
-      const mmHalf = Math.floor(MM_SIZE / 2);
-      for (let my = 0; my < MM_SIZE; my++) {
-        for (let mx = 0; mx < MM_SIZE; mx++) {
-          const wrx = roomX + mx - mmHalf;
-          const wry = roomY + my - mmHalf;
-          const cx = MM_X + mx * MM_CELL;
-          const cy = MM_Y + my * MM_CELL;
-          const key = `${wrx},${wry}`;
-          const isCurrent = mx === mmHalf && my === mmHalf;
-          const isHome = wrx === 0 && wry === 0;
-          const isVisited = visited.has(key);
-          const isGate = area === 1 && wrx === 2 && wry === 2;
-
-          if (isCurrent) {
-            // Current room: filled
-            ctx.fillRect(cx, cy, MM_CELL - 1, MM_CELL - 1);
-            // Player dot in white
-            ctx.fillStyle = WHT;
-            ctx.fillRect(cx + 7, cy + 7, 4, 4);
-            ctx.fillStyle = BLK;
-          } else if (isVisited) {
-            // Visited: light fill with dither
-            for (let dy = 0; dy < MM_CELL - 1; dy += 2)
-              for (let dx = (dy % 4 === 0 ? 0 : 1); dx < MM_CELL - 1; dx += 2)
-                ctx.fillRect(cx + dx, cy + dy, 1, 1);
-          } else {
-            // Unknown: just border dots at corners
-            ctx.fillRect(cx, cy, 1, 1);
-            ctx.fillRect(cx + MM_CELL - 2, cy, 1, 1);
-            ctx.fillRect(cx, cy + MM_CELL - 2, 1, 1);
-            ctx.fillRect(cx + MM_CELL - 2, cy + MM_CELL - 2, 1, 1);
-          }
-
-          // Home marker: small cross
-          if (isHome && !isCurrent) {
-            const hx = cx + MM_CELL / 2 - 1, hy = cy + MM_CELL / 2 - 1;
-            ctx.fillRect(hx, hy - 2, 2, 6);
-            ctx.fillRect(hx - 2, hy, 6, 2);
-          }
-
-          // Gate marker
-          if (isGate && isVisited && !isCurrent) {
-            ctx.strokeRect(cx + 4, cy + 4, MM_CELL - 9, MM_CELL - 9);
-          }
-
-          // Room content markers for visited rooms
-          if (isVisited && !isCurrent) {
-            const ri = roomInfo[key];
-            if (ri) {
-              if (ri.s) { // Shrine: small triangle/arrow up
-                ctx.fillRect(cx + MM_CELL / 2 - 1, cy + 3, 2, 1);
-                ctx.fillRect(cx + MM_CELL / 2 - 2, cy + 4, 4, 1);
-              }
-              if (ri.d) { // Demon: small X
-                ctx.fillRect(cx + MM_CELL - 6, cy + MM_CELL - 6, 1, 1);
-                ctx.fillRect(cx + MM_CELL - 4, cy + MM_CELL - 4, 1, 1);
-                ctx.fillRect(cx + MM_CELL - 6, cy + MM_CELL - 4, 1, 1);
-                ctx.fillRect(cx + MM_CELL - 4, cy + MM_CELL - 6, 1, 1);
-              }
-            }
-          }
-        }
+      // Freeze brackets
+      if (frozen) {
+        ctx.fillStyle = fg;
+        const b = 5, bx2 = ppx - 3, by2 = ppy - 3, bw2 = TILE + 6, bh2 = TILE + 6;
+        ctx.fillRect(bx2, by2, b, 2); ctx.fillRect(bx2, by2, 2, b);
+        ctx.fillRect(bx2 + bw2 - b, by2, b, 2); ctx.fillRect(bx2 + bw2 - 2, by2, 2, b);
+        ctx.fillRect(bx2, by2 + bh2 - 2, b, 2); ctx.fillRect(bx2, by2 + bh2 - b, 2, b);
+        ctx.fillRect(bx2 + bw2 - b, by2 + bh2 - 2, b, 2); ctx.fillRect(bx2 + bw2 - 2, by2 + bh2 - b, 2, b);
       }
+    };
 
-      // Minimap label
-      ctx.font = "12px 'Courier New',monospace"; ctx.textAlign = "center";
-      ctx.fillText("MAP", MM_X + MM_W / 2, MM_Y + MM_W + 12);
+    // LIGHT WORLD
+    ctx.fillStyle = BLK; ctx.font = "bold 11px 'Courier New',monospace"; ctx.textAlign = "center";
+    ctx.fillText("~ Light World ~", W / 2, 16);
+    drawWorld(lightWorld, lightPos, LIGHT_OY, false, splitMode === "shadow", shadowPlatePressed);
+    drawSplitMeter("light", LIGHT_OY, false);
 
-      // ── Right: Status Panel ──
-      const SP_X = MM_X + MM_W + 20;
-      const SP_Y = HUD_TOP + 10;
-      const SP_W = W - SP_X - 12;
+    // ── MINIMAP (right margin of light world) ──
+    const MN = 7, MC = 7;
+    const MX = VIEW_OX + VIEW_W + 5, MY = LIGHT_OY + 5;
+    ctx.fillStyle = BLK;
+    ctx.font = "bold 7px 'Courier New',monospace"; ctx.textAlign = "center";
+    ctx.fillText("MAP", MX + (MN * MC) / 2, MY - 2);
+    // Grid border
+    ctx.strokeStyle = BLK; ctx.lineWidth = 1;
+    ctx.strokeRect(MX - 1, MY - 1, MN * MC + 2, MN * MC + 2);
+    const half = Math.floor(MN / 2);
+    for (let my = 0; my < MN; my++) for (let mx = 0; mx < MN; mx++) {
+      const mrx = roomX + mx - half, mry = roomY + my - half;
+      const key = `${mrx},${mry}`;
+      const px = MX + mx * MC, py = MY + my * MC;
+      const isCur = mx === half && my === half;
+      const isVis = visited.has(key);
+      const hasShard = SHARD_LOCS.some(s => s.rx === mrx && s.ry === mry && !shards.has(s.id)) ||
+        (chapter >= 2 && VOID_SHARD_LOCS.some(s => s.rx === mrx && s.ry === mry && !voidShards.has(s.id))) ||
+        (chapter >= 3 && ECHO_SHARD_LOCS.some(s => s.rx === mrx && s.ry === mry && !echoShards.has(s.id)));
 
-      // Area name
-      ctx.font = "bold 14px 'Courier New',monospace"; ctx.textAlign = "left";
-      ctx.fillText(area === 1 ? "Sacred Meadow" : "Ashen Forest", SP_X, SP_Y + 10);
-
-      // Souls
-      ctx.font = "12px 'Courier New',monospace";
-      ctx.fillText(`Souls: ${held} held`, SP_X, SP_Y + 32);
-      ctx.fillText(`Guided: ${guided}`, SP_X + 130, SP_Y + 32);
-
-      // Potions (dots)
-      ctx.fillText("Potions:", SP_X, SP_Y + 52);
-      for (let i = 0; i < Math.min(potions, 10); i++) {
-        fillCircle(ctx, SP_X + 72 + i * 14, SP_Y + 48, 4);
+      const isHome = mrx === 0 && mry === 0 && !isCur;
+      ctx.fillStyle = BLK;
+      if (isCur) {
+        // Current room: filled square with white center dot
+        ctx.fillRect(px + 1, py + 1, MC - 2, MC - 2);
+        ctx.fillStyle = WHT;
+        ctx.fillRect(px + 3, py + 3, 1, 1);
+        ctx.fillStyle = BLK;
+      } else if (isHome) {
+        // Home/Watcher: outlined square (distinct from dot and star)
+        ctx.strokeStyle = BLK; ctx.lineWidth = 1;
+        ctx.strokeRect(px + 1, py + 1, MC - 2, MC - 2);
+      } else if (hasShard) {
+        // Shard room: filled diamond, intentionally larger than visited dots.
+        const cx2 = px + 3, cy2 = py + 3;
+        drawPixelDiamond(ctx, cx2, cy2, 3, true);
+      } else if (isVis) {
+        // Visited: small single dot
+        ctx.fillRect(px + 3, py + 3, 1, 1);
       }
-      if (potions === 0) { ctx.font = "12px 'Courier New',monospace"; ctx.fillText("none", SP_X + 72, SP_Y + 52); }
+    }
 
-      // Candle lore indicator
-      ctx.font = "12px 'Courier New',monospace";
-      ctx.fillText("Lore:", SP_X, SP_Y + 74);
-      for (let i = 0; i < TOTAL_LORE; i++) {
-        const clx = SP_X + 50 + i * 16, cly = SP_Y + 62;
-        if (i < loreN) {
-          // Lit: flame + stem
-          ctx.fillRect(clx + 2, cly + 5, 2, 7);
-          fillEllipse(ctx, clx + 3, cly + 4, 3, 4);
+    // DIVIDER + shard indicators
+    ctx.fillStyle = BLK;
+    ctx.fillRect(VIEW_OX - 8, 388, VIEW_W + 16, 1);
+    // Shard diamonds — Chapter 1 shards + Chapter 2 void shards
+    const drawDiamondRow = (count, prefix, collected, baseX, sy) => {
+      for (let i = 0; i < count; i++) {
+        const sx = baseX + i * 14;
+        ctx.fillStyle = BLK;
+        if (collected.has(`${prefix}${i}`)) {
+          ctx.fillRect(sx + 3, sy, 1, 1); ctx.fillRect(sx + 2, sy + 1, 3, 1);
+          ctx.fillRect(sx + 1, sy + 2, 5, 1); ctx.fillRect(sx, sy + 3, 7, 1);
+          ctx.fillRect(sx + 1, sy + 4, 5, 1); ctx.fillRect(sx + 2, sy + 5, 3, 1);
+          ctx.fillRect(sx + 3, sy + 6, 1, 1);
         } else {
-          // Unlit: just stem
-          ctx.fillRect(clx + 2, cly + 7, 2, 5);
-          ctx.strokeRect(clx + 1, cly + 6, 4, 1);
+          ctx.fillRect(sx + 3, sy, 1, 1);
+          ctx.fillRect(sx + 2, sy + 1, 1, 1); ctx.fillRect(sx + 4, sy + 1, 1, 1);
+          ctx.fillRect(sx + 1, sy + 2, 1, 1); ctx.fillRect(sx + 5, sy + 2, 1, 1);
+          ctx.fillRect(sx, sy + 3, 1, 1); ctx.fillRect(sx + 6, sy + 3, 1, 1);
+          ctx.fillRect(sx + 1, sy + 4, 1, 1); ctx.fillRect(sx + 5, sy + 4, 1, 1);
+          ctx.fillRect(sx + 2, sy + 5, 1, 1); ctx.fillRect(sx + 4, sy + 5, 1, 1);
+          ctx.fillRect(sx + 3, sy + 6, 1, 1);
         }
       }
-
-      // Room coordinates (subtle)
-      ctx.font = "12px 'Courier New',monospace"; ctx.fillStyle = BLK;
-      ctx.fillText(`(${roomX}, ${roomY})`, SP_X + SP_W - 40, SP_Y + 74);
-      ctx.fillStyle = BLK;
-
-      // ── Current objective ──
-      const OBJ_Y = HUD_TOP + 100;
-      ctx.font = "12px 'Courier New',monospace"; ctx.textAlign = "left";
-      ctx.fillText(getObjective(), 12, OBJ_Y + 10);
-
-      // ── Message area ──
-      const MSG_Y = OBJ_Y + 20;
-      ctx.strokeStyle = BLK;
-      ctx.strokeRect(8, MSG_Y - 2, W - 16, 42);
-      ctx.font = "italic 13px 'Courier New',monospace";
-      const ml = wrap(ctx, msg, W - 36);
-      ml.slice(0, 2).forEach((l, i) => ctx.fillText(l, 16, MSG_Y + 14 + i * 16));
-
-      // ── Ink Blot (Resolve indicator) ──
-      // Wide horizontal spread between message area and controls bar
-      const blotCY = H - 60; // between message and controls
-      const damage = 100 - resolve;
-      drawInkBlot(ctx, W / 2, blotCY, damage, W * 0.4, 28);
-      ctx.fillStyle = BLK;
-
-      // ── Controls ──
-      ctx.fillRect(0, H - 22, W, 1);
-      ctx.font = "12px 'Courier New',monospace"; ctx.textAlign = "center";
-      ctx.fillText("Move: D-Pad   Act: Confirm   J: Progress   Menu: Home", W / 2, H - 6);
-      ctx.textAlign = "left";
+    };
+    if (chapter >= 2) {
+      // Show both rows: Ch1 shards left, Ch2 void shards right
+      drawDiamondRow(TOTAL_SHARDS, "shard_", shards, W / 2 - TOTAL_SHARDS * 14 - 4, 391);
+      drawDiamondRow(TOTAL_VOID_SHARDS, "void_", voidShards, W / 2 + 4, 391);
+    } else {
+      drawDiamondRow(TOTAL_SHARDS, "shard_", shards, W / 2 - TOTAL_SHARDS * 7, 391);
     }
+    ctx.font = "bold 10px 'Courier New',monospace"; ctx.textAlign = "center";
+    ctx.fillText("~ Shadow World ~", W / 2, 405);
+    ctx.fillRect(VIEW_OX - 8, 407, VIEW_W + 16, 1);
 
-    // ENCOUNTER
-    if (gs === "encounter" && enc) {
-      const d = DEMONS[enc.subtype];
-
-      // Framed portrait with decorative border
-      const portraitX = W / 2 - 68, portraitY = 20;
-      drawBorder(ctx, portraitX - 8, portraitY - 8, 136 + 16, 130 + 16);
-      ds(ctx, enc.subtype, portraitX + 8, portraitY + 5, 5);
-
-      // Name with decorative dividers
-      const nameY = portraitY + 130 + 24;
-      ctx.font = "bold 22px 'Courier New',monospace"; ctx.textAlign = "center";
-      ctx.fillText(d.name, W / 2, nameY);
-      if (d.boss) { ctx.font = "bold 14px 'Courier New',monospace"; ctx.fillText("~ B O S S ~", W / 2, nameY + 20); }
-      drawDivider(ctx, d.boss ? nameY + 28 : nameY + 10, 60, W - 60);
-
-      // Dialogue in bordered panel
-      const textY = d.boss ? nameY + 46 : nameY + 28;
-      const txt = encR ? encR.t : encG;
-      ctx.font = "italic 14px 'Courier New',monospace";
-      const tl = wrap(ctx, `"${txt}"`, W - 80);
-      // Dialogue panel
-      const panelH = Math.min(tl.length, 4) * 22 + 16;
-      ctx.strokeRect(30, textY - 12, W - 60, panelH);
-      tl.slice(0, 4).forEach((l, i) => ctx.fillText(l, W / 2, textY + 4 + i * 22));
-      const oY = textY + panelH + 8;
-
-      if (!encR) {
-        ctx.textAlign = "left";
-        choices.forEach((ch, i) => {
-          const y = oY + i * 50, sel = i === encCh;
-          if (sel) {
-            ctx.fillStyle = BLK; ctx.fillRect(28, y - 2, W - 56, 43);
-            ctx.fillStyle = WHT;
-            ctx.fillRect(30, y, W - 60, 39);
-            ctx.fillStyle = BLK;
-            // Fill with dither pattern for selected
-            for (let dy = 0; dy < 39; dy += 2)
-              for (let dx = (dy % 4 === 0 ? 0 : 1); dx < W - 60; dx += 2)
-                ctx.fillRect(30 + dx, y + dy, 1, 1);
-            ctx.fillStyle = WHT;
-          } else {
-            ctx.fillStyle = BLK;
-            ctx.strokeRect(30, y, W - 60, 39);
-          }
-          ctx.font = `bold 16px 'Courier New',monospace`;
-          ctx.fillText(`${sel ? " >" : "  "} ${ch}`, 38, y + 18);
-          ctx.font = "12px 'Courier New',monospace";
-          ctx.fillText(`   ${cDesc[i]}`, 38, y + 33);
-          ctx.fillStyle = BLK;
-        });
-      } else {
-        ctx.textAlign = "center"; ctx.font = "bold 16px 'Courier New',monospace";
-        ctx.fillText(encR.ok ? "The presence disperses." : "It remains.", W / 2, oY + 24);
-        ctx.font = "italic 13px 'Courier New',monospace";
-        ctx.fillText(encR.ok ? (d.boss ? "A trophy remains at your grave." : "The air lifts.") : "You will meet again.", W / 2, oY + 48);
-        drawDivider(ctx, oY + 60, 100, W - 100);
-        ctx.font = "bold 14px 'Courier New',monospace"; ctx.fillText("ENTER to continue", W / 2, oY + 82);
+    // ── MIRROR METER (left side of divider, when active) ──
+    if (mirrorSteps > 0) {
+      ctx.fillStyle = BLK;
+      ctx.font = "bold 9px 'Courier New',monospace"; ctx.textAlign = "left";
+      ctx.fillText("MIRROR", 8, 395);
+      for (let i = 0; i < MIRROR_STEPS; i++) {
+        const filled = i < mirrorSteps;
+        drawPixelDiamond(ctx, 14 + i * 10, 400, 3, filled);
       }
-
-      // Ink blot resolve indicator
-      ctx.fillStyle = BLK;
-      const encBlotCY = H - 50;
-      const encDamage = 100 - resolve;
-      drawInkBlot(ctx, W / 2, encBlotCY, encDamage, W * 0.35, 22);
-      ctx.fillStyle = BLK;
-
-      ctx.textAlign = "center"; ctx.font = "12px 'Courier New',monospace";
-      ctx.fillRect(0, H - 22, W, 1);
-      ctx.fillText("↑↓ Choose   ENTER Select   ESC Flee", W / 2, H - 6);
-      ctx.textAlign = "left";
+    }
+    // ── MIRROR ACTIVATION BANNER (shown on first frame of mirror) ──
+    if (mirrorSteps === MIRROR_STEPS) {
+      const bx = 30, by = 385, bw = W - 60, bh = 26;
+      ctx.fillStyle = BLK; ctx.fillRect(bx, by, bw, bh);
+      ctx.fillStyle = WHT;
+      ctx.strokeStyle = WHT; ctx.strokeRect(bx + 2, by + 2, bw - 4, bh - 4);
+      ctx.font = "bold 11px 'Courier New',monospace"; ctx.textAlign = "center";
+      ctx.fillText("\u25C6 MIRROR ACTIVATED \u2014 5 INVERTED STEPS \u25C6", W / 2, by + 17);
     }
 
-    // VICTORY
-    if (gs === "victory") {
-      ctx.fillStyle = WHT; ctx.fillRect(0, 0, W, H); ctx.fillStyle = BLK;
-      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    // SHADOW WORLD
+    drawWorld(shadowWorld, shadowPos, SHADOW_OY, true, splitMode === "light", lightPlatePressed);
+    drawSplitMeter("shadow", SHADOW_OY, true);
 
-      // Draw the player sprite large
-      ds(ctx, "player", W / 2 - 48, 40, 4);
+    // ── ALIGNED SHARD INDICATOR ──
+    const alH = lightWorld.entities.find(e => e.type === "half_light");
+    const asH = shadowWorld.entities.find(e => e.type === "half_shadow");
+    if (alH && asH && alH.x === asH.x && alH.y === asH.y) {
+      // Draw merged shard in BOTH world views with thick border
+      const ax = alH.x, ay = alH.y;
+      // Light world: draw merged sprite + border
+      const lpx = VIEW_OX + ax * TILE, lpy = LIGHT_OY + ay * TILE;
+      ctx.fillStyle = BLK;
+      ds(ctx, "shard_merged", lpx, lpy);
+      ctx.strokeStyle = BLK; ctx.lineWidth = 3;
+      ctx.strokeRect(lpx - 4, lpy - 4, TILE + 8, TILE + 8);
+      ctx.lineWidth = 1;
+      // Shadow world: same
+      const spx = VIEW_OX + ax * TILE, spy = SHADOW_OY + ay * TILE;
+      ctx.fillStyle = WHT;
+      ds(ctx, "shard_merged", spx, spy);
+      ctx.strokeStyle = WHT; ctx.lineWidth = 3;
+      ctx.strokeRect(spx - 4, spy - 4, TILE + 8, TILE + 8);
+      ctx.lineWidth = 1;
+    }
 
-      ctx.font = "bold 24px 'Courier New',monospace";
-      ctx.fillText("The hunger is sated.", W / 2, 180);
+    // STATUS BAR — hearts
+    ctx.fillStyle = BLK;
+    for (let i = 0; i < MAX_HEARTS; i++) {
+      const hx = 8 + i * 14, hy = STATUS_Y + 4;
+      if (i < hp) {
+        // Filled heart
+        ctx.fillRect(hx+1,hy,2,1); ctx.fillRect(hx+5,hy,2,1);
+        ctx.fillRect(hx,hy+1,8,1);
+        ctx.fillRect(hx,hy+2,8,1);
+        ctx.fillRect(hx+1,hy+3,6,1);
+        ctx.fillRect(hx+2,hy+4,4,1);
+        ctx.fillRect(hx+3,hy+5,2,1);
+      } else {
+        // Empty heart outline
+        ctx.fillRect(hx+1,hy,2,1); ctx.fillRect(hx+5,hy,2,1);
+        ctx.fillRect(hx,hy+1,1,1); ctx.fillRect(hx+3,hy+1,2,1); ctx.fillRect(hx+7,hy+1,1,1);
+        ctx.fillRect(hx,hy+2,1,1); ctx.fillRect(hx+7,hy+2,1,1);
+        ctx.fillRect(hx+1,hy+3,1,1); ctx.fillRect(hx+6,hy+3,1,1);
+        ctx.fillRect(hx+2,hy+4,1,1); ctx.fillRect(hx+5,hy+4,1,1);
+        ctx.fillRect(hx+3,hy+5,2,1);
+      }
+    }
+    ctx.textAlign = "center"; ctx.font = "bold 11px 'Courier New',monospace";
+    // Show message in status center if active, otherwise show shard count
+    if (msg && !shardMsg) {
+      ctx.fillText(msg.length > 40 ? msg.slice(0, 40) + "\u2026" : msg, W / 2, STATUS_Y + 14);
+    } else if (splitMode) {
+      ctx.fillText(`${splitMode === "light" ? "Light" : "Shadow"} split: ${splitSteps}/${SPLIT_STEPS}`, W / 2, STATUS_Y + 14);
+    } else {
+      ctx.fillText(chapter >= 3
+        ? `Echo: ${echoShards.size}/${TOTAL_ECHO_SHARDS}`
+        : chapter >= 2
+        ? `Void: ${voidShards.size}/${TOTAL_VOID_SHARDS}`
+        : `Shards: ${shards.size}/${TOTAL_SHARDS}`, W / 2, STATUS_Y + 14);
+    }
+    ctx.textAlign = "right"; ctx.font = "11px 'Courier New',monospace";
+    ctx.fillText(`(${roomX},${roomY})`, W - 8, STATUS_Y + 14);
 
-      ctx.font = "italic 14px 'Courier New',monospace";
-      const endText = [
-        "Not defeated. Understood.",
-        "",
-        "The Devourer was a wound in the world —",
-        "something that should have healed",
-        "but never could. Until now.",
-        "",
-        "The souls you guided found rest.",
-        "The truths you gathered mended something",
-        "older than memory.",
-        "",
-        "You are still dead.",
-        "But you are no longer lost.",
-      ];
-      endText.forEach((l, i) => {
-        ctx.fillText(l, W / 2, 220 + i * 24);
+    // SHARD FOUND MODAL
+    if (shardMsg) {
+      const bx2 = 40, by2 = 310, bw2 = W - 80, bh2 = 150;
+      ctx.fillStyle = BLK; ctx.fillRect(bx2, by2, bw2, bh2);
+      ctx.fillStyle = WHT; ctx.strokeStyle = WHT;
+      ctx.strokeRect(bx2 + 3, by2 + 3, bw2 - 6, bh2 - 6);
+      ds(ctx, "shard_merged", W / 2 - 12, by2 + 15);
+      ctx.font = "bold 16px 'Courier New',monospace"; ctx.textAlign = "center";
+      ctx.fillText("SHARD MENDED", W / 2, by2 + 65);
+      ctx.font = "14px 'Courier New',monospace";
+      ctx.fillText(shardMsg, W / 2, by2 + 95);
+      ctx.font = "11px 'Courier New',monospace";
+      ctx.fillText("[ ENTER ]", W / 2, by2 + 125);
+    }
+
+    // GHOUL CAUGHT MODAL
+    if (caughtMsg) {
+      const bx2 = 40, by2 = 260, bw2 = W - 80, bh2 = 240;
+      ctx.fillStyle = BLK; ctx.fillRect(bx2, by2, bw2, bh2);
+      ctx.fillStyle = WHT; ctx.strokeStyle = WHT;
+      ctx.strokeRect(bx2 + 3, by2 + 3, bw2 - 6, bh2 - 6);
+      ctx.font = "bold 18px 'Courier New',monospace"; ctx.textAlign = "center";
+      if (caughtMsg === "dead") {
+        ctx.fillText("THE RIFT CONSUMES YOU", W / 2, by2 + 45);
+        ctx.font = "14px 'Courier New',monospace";
+        ctx.fillText("All hearts lost.", W / 2, by2 + 80);
+        ctx.fillText("The shards scatter.", W / 2, by2 + 105);
+        ctx.fillText("You must begin again.", W / 2, by2 + 130);
+      } else {
+        ds(ctx, "ghoul", W / 2 - 12, by2 + 20);
+        const lightLines = [
+          "The light blinds you.",
+          "Burned by brilliance.",
+          "The light finds no mercy.",
+          "Seared by radiance.",
+          "Too bright. Too fast.",
+          "The light does not forgive.",
+          "You looked too long.",
+        ];
+        const shadowLines = [
+          "The darkness consumes you.",
+          "The shadows pull you under.",
+          "Dragged into the dark.",
+          "Gone without a trace.",
+          "The dark was waiting.",
+          "You never saw it coming.",
+          "The void takes hold.",
+        ];
+        const lines = caughtMsg === "light" ? lightLines : shadowLines;
+        ctx.font = "bold 14px 'Courier New',monospace";
+        ctx.fillText(lines[steps % lines.length], W / 2, by2 + 85);
+      }
+      // Draw remaining hearts
+      const hx0 = W / 2 - MAX_HEARTS * 7;
+      for (let i = 0; i < MAX_HEARTS; i++) {
+        const hx = hx0 + i * 14, hy = by2 + 150;
+        ctx.fillStyle = WHT;
+        if (i < hp) {
+          ctx.fillRect(hx+1,hy,2,1); ctx.fillRect(hx+5,hy,2,1);
+          ctx.fillRect(hx,hy+1,8,1); ctx.fillRect(hx,hy+2,8,1);
+          ctx.fillRect(hx+1,hy+3,6,1); ctx.fillRect(hx+2,hy+4,4,1); ctx.fillRect(hx+3,hy+5,2,1);
+        } else {
+          ctx.fillRect(hx+1,hy,2,1); ctx.fillRect(hx+5,hy,2,1);
+          ctx.fillRect(hx,hy+1,1,1); ctx.fillRect(hx+3,hy+1,2,1); ctx.fillRect(hx+7,hy+1,1,1);
+          ctx.fillRect(hx,hy+2,1,1); ctx.fillRect(hx+7,hy+2,1,1);
+          ctx.fillRect(hx+1,hy+3,1,1); ctx.fillRect(hx+6,hy+3,1,1);
+          ctx.fillRect(hx+2,hy+4,1,1); ctx.fillRect(hx+5,hy+4,1,1);
+          ctx.fillRect(hx+3,hy+5,2,1);
+        }
+      }
+      ctx.fillStyle = WHT; ctx.font = "11px 'Courier New',monospace";
+      ctx.fillText("[ ENTER ]", W / 2, by2 + bh2 - 20);
+    }
+
+    // DIALOGUE
+    if (gs === "dialogue" && dialogueLines) {
+      const bx2 = 30, by2 = 280, bw2 = W - 60, bh2 = 220;
+      ctx.fillStyle = WHT; ctx.fillRect(bx2, by2, bw2, bh2);
+      ctx.fillStyle = BLK;
+      ctx.strokeRect(bx2, by2, bw2, bh2); ctx.strokeRect(bx2 + 3, by2 + 3, bw2 - 6, bh2 - 6);
+      ctx.font = "bold 13px 'Courier New',monospace"; ctx.textAlign = "left";
+      ctx.fillText("...", bx2 + 18, by2 + 28);
+      ctx.fillRect(bx2 + 10, by2 + 36, bw2 - 20, 1);
+      ctx.font = "14px 'Courier New',monospace";
+      wrap(ctx, dialogueLines[dialogueLine], bw2 - 40).forEach((l, i) => {
+        ctx.fillText(l, bx2 + 20, by2 + 60 + i * 22);
       });
-
-      drawDivider(ctx, 530, 60, W - 60);
-
-      ctx.font = "14px 'Courier New',monospace";
-      ctx.fillText(`Souls Guided: ${guided}`, W / 2, 556);
-      ctx.fillText(`Steps Taken: ${steps}`, W / 2, 580);
-      ctx.fillText(`Times Fallen: ${deaths}`, W / 2, 604);
-      ctx.fillText(`Rooms Explored: ${visited.size}`, W / 2, 628);
-      ctx.fillText(`Lore Fragments: ${loreN}/${TOTAL_LORE}`, W / 2, 652);
-
-      // Tendency summary
-      const maxT = Math.max(1, Object.values(tend).reduce((a, b) => a + b, 0));
-      const dominant = Object.entries(tend).sort((a, b) => b[1] - a[1])[0];
-      if (dominant[1] > 0) {
-        const titles = { confront: "The Unflinching", comprehend: "The Understanding", absolve: "The Merciful", endure: "The Steadfast" };
-        ctx.font = "bold 16px 'Courier New',monospace";
-        ctx.fillText(titles[dominant[0]] || "The Searcher", W / 2, 690);
-      }
-
-      drawDivider(ctx, 710, 80, W - 80);
-      ctx.font = "bold 14px 'Courier New',monospace";
-      ctx.fillText("[ ENTER to continue exploring ]", W / 2, 740);
-      ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+      ctx.font = "10px 'Courier New',monospace"; ctx.textAlign = "right";
+      ctx.fillText(`${dialogueLine + 1}/${dialogueLines.length}  [ENTER]`, bx2 + bw2 - 15, by2 + bh2 - 15);
     }
 
-    // GAME OVER
-    if (gs === "gameover") {
-      ctx.fillStyle = BLK; ctx.fillRect(0, 0, W, H); ctx.fillStyle = WHT;
-      // Full-screen ink blot effect
-      ctx.fillStyle = WHT;
-      drawInkBlot(ctx, W / 2, H / 2, 100, W * 0.45, H * 0.35);
-      ctx.fillStyle = WHT;
-      ctx.font = "bold 28px 'Courier New',monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("Your resolve", W / 2, H / 2 - 60);
-      ctx.fillText("is spent.", W / 2, H / 2 - 25);
-      ctx.font = "italic 16px 'Courier New',monospace";
-      ctx.fillText("You drift. The darkness takes shape.", W / 2, H / 2 + 30);
-      ctx.fillText("But your grave remembers you.", W / 2, H / 2 + 55);
-      ctx.font = "14px 'Courier New',monospace";
-      ctx.fillText(`Souls guided: ${guided}  |  Steps: ${steps}`, W / 2, H / 2 + 110);
-      ctx.fillText(`Deaths: ${deaths}`, W / 2, H / 2 + 135);
-      ctx.font = "bold 16px 'Courier New',monospace";
-      ctx.fillText("[ ENTER to wake again ]", W / 2, H / 2 + 190);
-      ctx.textBaseline = "alphabetic"; ctx.textAlign = "left"; ctx.fillStyle = BLK;
-    }
+    ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+  }, [gs, lightWorld, shadowWorld, lightPos, shadowPos, splitMode, splitSteps,
+    hp, roomX, roomY, msg, dialogueLines, dialogueLine, seed, shards, shardMsg, caughtMsg,
+    visited, steps, chapter, voidShards, echoShards, mirrorSteps, lDoorsLatched, sDoorsLatched, linkedPlates, ds, wrap]);
 
-    // JOURNAL (tabbed: Progress / Encounters)
-    if (jOpen) {
-      ctx.fillStyle = WHT; ctx.fillRect(20, 20, W - 40, H - 40); ctx.fillStyle = BLK;
-      ctx.strokeStyle = BLK;
-      drawBorder(ctx, 22, 22, W - 44, H - 44);
+  // ── Ghoul tick + respawn ──────────────────────────────────────
+  const tickGhoulsAndCheck = useCallback((lp, sp) => {
+    // Move ghouls and check collision synchronously using current world state
+    if (!lightWorld || !shadowWorld) return;
+    const hasLGhouls = lightWorld.entities.some(e => e.type === "ghoul");
+    const hasSGhouls = shadowWorld.entities.some(e => e.type === "ghoul");
+    if (!hasLGhouls && !hasSGhouls) return;
 
-      // Tab bar
-      const tabW = (W - 80) / 2;
-      ctx.font = "bold 14px 'Courier New',monospace"; ctx.textAlign = "center";
-      // Progress tab
-      if (jTab === 0) { ctx.fillRect(40, 38, tabW, 24); ctx.fillStyle = WHT; }
-      ctx.fillText("Progress", 40 + tabW / 2, 55);
-      ctx.fillStyle = BLK;
-      // Encounters tab
-      if (jTab === 1) { ctx.fillRect(40 + tabW, 38, tabW, 24); ctx.fillStyle = WHT; }
-      ctx.fillText("Encounters", 40 + tabW + tabW / 2, 55);
-      ctx.fillStyle = BLK;
-      ctx.fillRect(40, 62, W - 80, 2);
+    const newLEnts = hasLGhouls ? moveGhouls(lightWorld.entities, lightWorld.tiles, lp) : lightWorld.entities;
+    const newSEnts = hasSGhouls ? moveGhouls(shadowWorld.entities, shadowWorld.tiles, sp) : shadowWorld.entities;
 
-      if (jTab === 0) {
-        // ── PROGRESS TAB ──
-        const ms = { gs, keeperT, guided, held, loreN, area, gateOpen, bossTrophies };
-        let completed = 0;
-        MILESTONES.forEach(m => { if (m.check(ms)) completed++; });
+    const lHit = checkGhoulCollision(newLEnts, lp);
+    const sHit = checkGhoulCollision(newSEnts, sp);
 
-        // Current objective
-        ctx.font = "bold 14px 'Courier New',monospace"; ctx.textAlign = "left";
-        ctx.fillText("Current Objective:", 40, 90);
-        ctx.font = "italic 14px 'Courier New',monospace";
-        const objLines = wrap(ctx, getObjective(), W - 100);
-        objLines.slice(0, 2).forEach((l, i) => ctx.fillText(l, 50, 112 + i * 18));
-
-        drawDivider(ctx, 142, 40, W - 40);
-
-        // Milestone list
-        ctx.font = "bold 13px 'Courier New',monospace"; ctx.textAlign = "center";
-        ctx.fillText(`Journey  (${completed}/${MILESTONES.length})`, W / 2, 164);
-        ctx.textAlign = "left";
-        MILESTONES.forEach((m, i) => {
-          const done = m.check(ms);
-          const my = 184 + i * 28;
-          ctx.font = "14px 'Courier New',monospace";
-          ctx.fillText(done ? "[x]" : "[ ]", 44, my);
-          ctx.font = done ? "14px 'Courier New',monospace" : "italic 14px 'Courier New',monospace";
-          ctx.fillText(m.label, 80, my);
-          // First incomplete milestone gets an arrow
-          if (!done && (i === 0 || MILESTONES[i - 1].check(ms))) {
-            ctx.fillText("<", W - 50, my);
-          }
-        });
-
-        // Stats at bottom
-        drawDivider(ctx, H - 130, 40, W - 40);
-        ctx.font = "13px 'Courier New',monospace"; ctx.textAlign = "left";
-        ctx.fillText(`Steps: ${steps}`, 44, H - 108);
-        ctx.fillText(`Souls Guided: ${guided}`, 200, H - 108);
-        ctx.fillText(`Deaths: ${deaths}`, 44, H - 88);
-        ctx.fillText(`Rooms Explored: ${visited.size}`, 200, H - 88);
-
-        // Tendency
-        ctx.font = "bold 13px 'Courier New',monospace"; ctx.textAlign = "center";
-        ctx.fillText("Tendency", W / 2, H - 64);
-        ctx.font = "12px 'Courier New',monospace"; ctx.textAlign = "left";
-        const maxT = Math.max(1, Object.values(tend).reduce((a, b) => a + b, 0));
-        ["confront", "comprehend", "absolve", "endure"].forEach((k, i) => {
-          const p = tend[k] / maxT;
-          ctx.fillText(`${(k[0].toUpperCase() + k.slice(1)).padEnd(11)} ${"█".repeat(Math.round(p * 16))}${"░".repeat(16 - Math.round(p * 16))}`, 44, H - 44 + i * 16);
-        });
+    if (lHit || sHit) {
+      // Ghoul caught — show modal, defer respawn to dismissal
+      const newHp = Math.max(0, hp - GHOUL_DMG);
+      setHp(newHp);
+      if (!ambushed) setAmbushed(true);
+      if (newHp <= 0) {
+        setCaughtMsg("dead");
       } else {
-        // ── ENCOUNTERS TAB ──
-        if (!journal.length) {
-          ctx.font = "italic 14px 'Courier New',monospace"; ctx.textAlign = "center";
-          ctx.fillText("No encounters yet.", W / 2, 110);
-          ctx.fillText("Seek the demons.", W / 2, 135);
-        } else {
-          ctx.textAlign = "left";
-          journal.slice(jScroll, jScroll + 5).forEach((en, i) => {
-            const ey = 80 + i * 100;
-            ctx.font = "bold 14px 'Courier New',monospace"; ctx.fillText(en.name, 44, ey);
-            ctx.font = "12px 'Courier New',monospace";
-            wrap(ctx, en.note, W - 100).slice(0, 3).forEach((l, li) => ctx.fillText(l, 44, ey + 20 + li * 15));
-            if (en.attempts > 1) ctx.fillText(`Encounters: ${en.attempts}`, 44, ey + 72);
-            ctx.fillRect(44, ey + 82, W - 88, 1);
-          });
-          // Scroll indicator
-          if (journal.length > 5) {
-            ctx.font = "12px 'Courier New',monospace"; ctx.textAlign = "center";
-            ctx.fillText(`${jScroll + 1}-${Math.min(jScroll + 5, journal.length)} of ${journal.length}`, W / 2, H - 50);
-          }
-        }
+        setCaughtMsg(lHit ? "light" : "shadow");
       }
-
-      ctx.textAlign = "center"; ctx.font = "12px 'Courier New',monospace";
-      ctx.fillText("←→ Tab   ↑↓ Scroll   J/ESC Close", W / 2, H - 28);
-      ctx.textAlign = "left";
+    } else {
+      // Just update ghoul positions
+      if (hasLGhouls) setLightWorld(w => ({ ...w, entities: newLEnts }));
+      if (hasSGhouls) setShadowWorld(w => ({ ...w, entities: newSEnts }));
     }
+  }, [lightWorld, shadowWorld, ambushed, seed, chapter]);
 
-    // ── Low resolve vignette (deterministic ordered dither) ──
-    if (resolve < 40 && gs === "overworld") {
-      ctx.fillStyle = BLK;
-      const intensity = (40 - resolve) / 40; // 0..1
-      // Bayer 4x4 ordered dither matrix for deterministic pattern
-      const bayer = [0,8,2,10, 12,4,14,6, 3,11,1,9, 15,7,13,5];
-      const step = 4;
-      for (let y = 0; y < H; y += step) {
-        for (let x = 0; x < W; x += step) {
-          const dx = (x - W / 2) / (W / 2);
-          const dy = (y - H / 2) / (H / 2);
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const threshold = 1.3 - intensity * 0.7;
-          if (dist > threshold) {
-            // Ordered dither: deterministic, same output every render
-            const ditherVal = bayer[((y >> 2) & 3) * 4 + ((x >> 2) & 3)] / 16;
-            const fillChance = Math.min(1, (dist - threshold) * intensity * 2);
-            if (ditherVal < fillChance) {
-              ctx.fillRect(x, y, step, step);
-            }
-          }
-        }
-      }
-      ctx.fillStyle = BLK;
-    }
-
-    // ── Damage flash overlay (single frame, e-ink safe) ──
-    if (dmgFlash > 0 && gs !== "intro") {
-      ctx.fillStyle = BLK;
-      const t = 6;
-      ctx.fillRect(0, 0, W, t);
-      ctx.fillRect(0, H - t, W, t);
-      ctx.fillRect(0, 0, t, H);
-      ctx.fillRect(W - t, 0, t, H);
-      // Clear flash so next render is clean
-      setDmgFlash(0);
-    }
-  }, [gs, introLine, area, room, plX, plY, roomX, roomY, resolve, held, guided, msg, enc, encCh, encG, encR, journal, jOpen, jScroll, jTab, tend, banished, loreN, loreFrags, keeperMsg, bossTrophies, potions, homeView, gateOpen, visited, roomInfo, dmgFlash, steps, deaths, victory, keeperT, ds, wrap, fillCircle, fillEllipse, drawWater, drawGround, drawBorder, drawDivider, drawInkBlot, getObjective]);
-
-  // ── Change room ──────────────────────────────────────────────
-  const changeRoom = useCallback((newRX, newRY, entryX, entryY) => {
-    setRoomX(newRX); setRoomY(newRY);
-    const newRoom = generateRoom(newRX, newRY, area, seed);
-    setRoom(newRoom);
-    setPlX(entryX); setPlY(entryY);
-    setVisited(v => cappedSet(v, `${newRX},${newRY}`, 100));
-    // Cache room metadata for minimap (lightweight — just booleans)
-    const key = `${newRX},${newRY}`;
-    const hasShrine = newRoom.entities.some(e => e.type === "shrine");
-    const hasDemon = newRoom.entities.some(e => e.type === "demon");
-    setRoomInfo(ri => { const n = { ...ri, [key]: { s: hasShrine, d: hasDemon } }; const keys = Object.keys(n); if (keys.length > 100) { delete n[keys[0]]; } return n; });
-    setMsg(area === 1 ? pick(AMBIENT1) : pick(AMBIENT2));
-  }, [area, seed]);
-
-  // ── Input ──────────────────────────────────────────────────
+  // ── Input ─────────────────────────────────────────────────────
   const handleKey = useCallback((e) => {
-    e.preventDefault();
-    if (keeperMsg !== null) { if (e.key === "Enter") setKeeperMsg(null); return; }
-    if (homeView) {
-      if (e.key === "Escape") {
-        setHomeView(false);
-        if (savedRoom) { setRoomX(savedRoom.rx); setRoomY(savedRoom.ry); setRoom(generateRoom(savedRoom.rx, savedRoom.ry, area, seed)); setPlX(savedRoom.px); setPlY(savedRoom.py); setSavedRoom(null); }
-        setMsg("You open your eyes.");
-      } return;
-    }
-    if (jOpen) {
-      if (e.key === "j" || e.key === "Escape") setJOpen(false);
-      if (e.key === "ArrowLeft") { setJTab(0); setJScroll(0); }
-      if (e.key === "ArrowRight") { setJTab(1); setJScroll(0); }
-      if (e.key === "ArrowDown") setJScroll(s => Math.min(s + 1, Math.max(0, journal.length - 5)));
-      if (e.key === "ArrowUp") setJScroll(s => Math.max(0, s - 1));
-      return;
-    }
+    e.preventDefault(); const key = e.key;
 
-    // Victory: continue exploring after boss
-    if (gs === "victory") {
-      if (e.key === "Enter") { setGs("overworld"); setMsg("The world feels lighter. But there is always more to find."); }
-      return;
-    }
+    // Shard modal dismiss
+    if (shardMsg) { if (key === "Enter" || key === "Escape" || key === "1" || key === "2") setShardMsg(null); return; }
 
-    // Game over: respawn at grave with partial resolve
-    if (gs === "gameover") {
-      if (e.key === "Enter") {
-        setResolve(40); setHeld(0);
+    // Ghoul catch modal dismiss
+    if (caughtMsg) {
+      if (key === "Enter" || key === "Escape") {
+        const isDead = caughtMsg === "dead";
+        setCaughtMsg(null);
+        // Respawn at Watcher room
+        const home = generateDualRoom(0, 0, seed, chapter);
         setRoomX(0); setRoomY(0);
-        setRoom(generateRoom(0, 0, area, seed));
-        setPlX(Math.floor(ROOM_COLS / 2) + 1); setPlY(Math.floor(ROOM_ROWS / 2) + 1);
-        setGs("overworld");
-        setMsg("You wake at your grave. Weaker. But awake.");
-        setEnc(null); setEncR(null); setEncCh(0);
-        setSavedRoom(null); setHomeView(false);
+        setLightWorld(home.light); setShadowWorld(home.shadow);
+        setLightPos({ x: 7, y: 7 }); setShadowPos({ x: 7, y: 7 });
+        setSplitMode(null); setSplitSteps(0); setSplitAnchor(null);
+        setMirrorSteps(0); setMirrorAnchor(null);
+        setLDoorsLatched(false); setSDoorsLatched(false);
+        setLinkedPlates(!!home.linkedPlates);
+        if (isDead) {
+          // Full reset of current chapter
+          setHp(MAX_HEARTS);
+          if (chapter >= 3) {
+            setEchoShards(new Set());
+            setMsg("The echoes scatter. Begin again.");
+          } else if (chapter >= 2) {
+            setVoidShards(new Set());
+            setMsg("The void reclaims its shards. Begin again.");
+          } else {
+            setShards(new Set());
+            setMsg("The shards scatter. Begin again.");
+          }
+        } else {
+          setMsg("You wake at the Watcher's side.");
+        }
       }
       return;
     }
 
     if (gs === "intro") {
-      if (e.key === "Enter") {
-        if (introLine < INTRO.length - 1) setIntroLine(l => l + 1);
-        else {
-          // Try to load saved game
-          if (!loadGame()) {
-            setGs("overworld");
-            setMsg("You stand at your own grave. A figure watches nearby.");
-          }
+      if (key === "Enter") { setGs("play"); setMsg("Talk to the Watcher. Split, push, mend."); }
+      // DEV: press 0 to skip to Chapter 2, press 9 to skip to Chapter 3
+      if (key === "0") {
+        setShards(new Set(["shard_0","shard_1","shard_2","shard_3","shard_4"]));
+        setChapter(2); setGs("play"); setMsg("Chapter 2. Five void shards await.");
+      }
+      if (key === "9") {
+        setShards(new Set(["shard_0","shard_1","shard_2","shard_3","shard_4"]));
+        setVoidShards(new Set(["void_0","void_1","void_2","void_3","void_4"]));
+        setChapter(3); setGs("play"); setMsg("Chapter 3. Five echo shards await.");
+      }
+      return;
+    }
+    if (gs === "victory") {
+      if (key === "Enter") {
+        if (chapter === 1) {
+          setChapter(2); setVictory(false); setGs("play");
+          setMsg("The deeper rift opens. Five void shards await.");
+        } else if (chapter === 2) {
+          setChapter(3); setVictory(false); setGs("play");
+          setMsg("The mirror fractures. Five echo shards await.");
+        } else {
+          setGs("play"); setMsg("Free to explore. All rifts are sealed.");
         }
       }
       return;
     }
 
-    if (gs === "encounter") {
-      if (encR) {
-        if (e.key === "Enter") {
-          const wasBoss = enc && DEMONS[enc.subtype]?.boss && encR.ok;
-          setEnc(null); setEncR(null); setEncCh(0);
-          setGs(wasBoss ? "victory" : "overworld");
+    if (gs === "dialogue") {
+      if (key === "Enter") {
+        if (dialogueLine < dialogueLines.length - 1) setDialogueLine(l => l + 1);
+        else {
+          setGs("play"); setDialogueLines(null); setDialogueLine(0); setMsg("");
+          if (chapter === 1 && shards.size >= TOTAL_SHARDS && !victory) {
+            setVictory(true); setGs("victory");
+          } else if (chapter === 2 && voidShards.size >= TOTAL_VOID_SHARDS && !victory) {
+            setVictory(true); setGs("victory");
+          } else if (chapter >= 3 && echoShards.size >= TOTAL_ECHO_SHARDS && !victory) {
+            setVictory(true); setGs("victory");
+          }
         }
-        return;
-      }
-      if (e.key === "ArrowUp") setEncCh(c => (c - 1 + 4) % 4);
-      if (e.key === "ArrowDown") setEncCh(c => (c + 1) % 4);
-      if (e.key === "Escape") {
-        // Fleeing costs resolve — turning your back on truth has a price
-        const dem = DEMONS[enc.subtype];
-        const fleeCost = dem.boss ? -15 : -5;
-        setResolve(r => Math.max(0, r + fleeCost));
-        setEnc(null); setEncR(null); setEncCh(0); setGs("overworld");
-        setMsg(dem.boss ? "You flee. The hunger follows." : "You turn away. Something lingers.");
-      }
-      if (e.key === "Enter" && enc) {
-        const dem = DEMONS[enc.subtype], key = ["confront", "comprehend", "absolve", "endure"][encCh];
-        const result = pick(dem.responses[key]);
-        setResolve(r => Math.max(0, Math.min(100, r + result.r)));
-        setEncR(result); setTend(t => ({ ...t, [key]: t[key] + 1 }));
-        if (result.ok) {
-          setBanished(b => cappedSet(b, enc.id, 200));
-          if (dem.boss) { setBossTrophies(tr => [...tr, { name: dem.name, sprite: enc.subtype }]); setVictory(true); }
-          if (!loreFrags.includes(dem.lore)) { setLoreFrags(f => [...f, dem.lore]); setLoreN(l => l + 1); }
-          if (Math.random() < 0.3) setPotions(p => p + 1);
-          setMsg(`The ${dem.name} disperses.`);
-        } else setMsg(`The ${dem.name} remains.`);
-        setJournal(j => { const ex = j.find(x => x.id === enc.id); if (ex) return j.map(x => x.id === enc.id ? { ...x, attempts: (x.attempts || 1) + 1, note: `${key}. ${result.ok ? "Yielded." : "Held."}` } : x); const nj = [...j, { id: enc.id, name: dem.name, note: `${key}. ${result.ok ? "Yielded." : "Held."}`, attempts: 1 }]; return nj.length > 20 ? nj.slice(nj.length - 20) : nj; });
-      } return;
+      } else if (key === "Escape") { setGs("play"); setDialogueLines(null); setDialogueLine(0); setMsg(""); }
+      return;
     }
 
-    if (gs === "overworld") {
-      if (e.key === "j") { setJOpen(true); return; }
-      if (e.key === "Escape") {
-        if (roomX === 0 && roomY === 0) { setHomeView(true); return; }
-        setSavedRoom({ rx: roomX, ry: roomY, px: plX, py: plY });
-        setRoomX(0); setRoomY(0); setRoom(generateRoom(0, 0, area, seed));
-        setPlX(Math.floor(ROOM_COLS / 2) + 1); setPlY(Math.floor(ROOM_ROWS / 2) + 1);
-        setHomeView(true); return;
-      }
+    if (gs !== "play" || !lightWorld || !shadowWorld) return;
 
-      let nx = plX, ny = plY;
-      if (e.key === "ArrowUp") ny--; if (e.key === "ArrowDown") ny++;
-      if (e.key === "ArrowLeft") nx--; if (e.key === "ArrowRight") nx++;
+    const snapSplit = (text = "The tether snaps back.") => {
+      if (!splitMode || !splitAnchor) return;
+      if (splitMode === "light") setLightPos(splitAnchor);
+      else setShadowPos(splitAnchor);
+      setSplitMode(null);
+      setSplitSteps(0);
+      setSplitAnchor(null);
+      setMsg(text);
+    };
 
-      if (e.key === "Enter") {
-        // Potion at grave
-        const isHome = roomX === 0 && roomY === 0;
-        const onGrave = isHome && plX === Math.floor(ROOM_COLS / 2) && plY === Math.floor(ROOM_ROWS / 2) + 1;
-        if (onGrave && potions > 0 && resolve < 100) { setPotions(p => p - 1); setResolve(r => Math.min(100, r + 30)); setMsg("Potion. Resolve restored."); return; }
-        if (onGrave) { setHomeView(true); return; }
+    let dx = 0, dy = 0;
+    if (key === "ArrowUp") dy = -1; else if (key === "ArrowDown") dy = 1;
+    else if (key === "ArrowLeft") dx = -1; else if (key === "ArrowRight") dx = 1;
 
-        const adj = room.entities.find(en => !banished.has(en.id) && Math.abs(en.x - plX) <= 1 && Math.abs(en.y - plY) <= 1 && !(en.x === plX && en.y === plY));
-        if (adj) {
-          if (adj.type === "demon") { setEnc(adj); setEncCh(0); setEncR(null); setEncG(pick(DEMONS[adj.subtype].greetings)); setGs("encounter"); }
-          else if (adj.type === "soul") {
-            const whisper = getW();
-            setMsg(`A soul whispers: "${whisper}"`);
-            setHeld(s => s + 1);
-            setBanished(b => cappedSet(b, adj.id, 200));
-            // Small resolve boost from collecting souls — compassion sustains
-            setResolve(r => Math.min(100, r + 2));
+    if (dx !== 0 || dy !== 0) {
+      // Pressure plate state: plates in other world open doors in this world.
+      // Doors also stay open once latched (pressed any time this room visit).
+      // In linked mode, live pressure requires BOTH plates pressed simultaneously.
+      const lLive = shadowWorld && isPlatePressed(shadowWorld, shadowPos);
+      const sLive = lightWorld && isPlatePressed(lightWorld, lightPos);
+      const bothLive = lLive && sLive;
+      const lDoorsOpen = lDoorsLatched || (linkedPlates ? bothLive : lLive);
+      const sDoorsOpen = sDoorsLatched || (linkedPlates ? bothLive : sLive);
+
+      if (splitMode) {
+        if (!splitAnchor || splitSteps <= 0) { snapSplit(); return; }
+        const soloLight = splitMode === "light";
+        const soloWorld = soloLight ? lightWorld : shadowWorld;
+        const soloPos = soloLight ? lightPos : shadowPos;
+        const nx = soloPos.x + dx, ny = soloPos.y + dy;
+
+        if (nx < 0 || nx >= GRID || ny < 0 || ny >= GRID) {
+          setMsg("The tether holds.");
+          return;
+        }
+
+        const halfType = soloLight ? "half_light" : "half_shadow";
+        const soloDoorsOpen = soloLight ? lDoorsOpen : sDoorsOpen;
+        const soloHalf = soloWorld.entities.find(e => e.type === halfType);
+        const soloPush = soloHalf && soloHalf.x === nx && soloHalf.y === ny;
+        const soloBlock = soloWorld.entities.some(e => isBlockingEntity(e) && e.x === nx && e.y === ny);
+        let ok = true;
+        if (soloPush) {
+          const pdx = nx + dx, pdy = ny + dy;
+          if (pdx < 0 || pdx >= GRID || pdy < 0 || pdy >= GRID || !isWalkable(soloWorld.tiles[pdy][pdx], soloDoorsOpen) ||
+              soloWorld.entities.some(e => e !== soloHalf && e.x === pdx && e.y === pdy)) {
+            ok = false;
           }
-          else if (adj.type === "shrine") {
-            if (held > 0) {
-              const restored = held * 8;
-              setGuided(g => g + held);
-              setResolve(r => Math.min(100, r + restored));
-              const msgs = [
-                `${held} soul${held > 1 ? "s" : ""} guided to rest. Light returns.`,
-                `${held} soul${held > 1 ? "s" : ""} find${held === 1 ? "s" : ""} peace. You feel steadier.`,
-                `The shrine accepts ${held} soul${held > 1 ? "s" : ""}. Warmth.`,
-              ];
-              setMsg(pick(msgs));
-              setHeld(0);
-            } else setMsg(pick(["The shrine hums. Bring souls.", "Stone and silence. It waits.", "The shrine is patient."]));
-          }
-          else if (adj.type === "keeper") { const state = { t: keeperT, l: loreN, g: guided, a: area, b: bossTrophies.length }; const line = [...KEEPER].reverse().find(l => l.c(state)); if (line) { setKeeperMsg(line.text); setKeeperT(t => t + 1); } }
-          else if (adj.type === "inscription") {
-            const insIdx = parseInt(adj.subtype) || 0;
-            const text = INSCRIPTIONS[insIdx % INSCRIPTIONS.length];
-            setMsg(`Carved in stone: "${text}"`);
-          }
-          else if (adj.type === "gate") {
-            if (!gateOpen) { setMsg("Sealed. Gather more truth."); return; }
-            setArea(2); changeRoom(0, 0, Math.floor(ROOM_COLS / 2), Math.floor(ROOM_ROWS / 2));
-            setMsg("The Ashen Forest. Bone-white trees. Something breathes beneath.");
-          }
-        } else setMsg("Nothing nearby.");
+        } else {
+          ok = !soloBlock && isWalkable(soloWorld.tiles[ny][nx], soloDoorsOpen);
+        }
+
+        if (!ok) {
+          setMsg(soloLight ? "Blocked above." : "Blocked below.");
+          return;
+        }
+
+        if (soloPush) {
+          const setWorld = soloLight ? setLightWorld : setShadowWorld;
+          setWorld(w => ({ ...w, entities: w.entities.map(e =>
+            e === soloHalf ? { ...e, x: nx + dx, y: ny + dy } : e) }));
+        }
+        if (soloLight) setLightPos({ x: nx, y: ny });
+        else setShadowPos({ x: nx, y: ny });
+        setSteps(s => s + 1);
+
+        const remaining = splitSteps - 1;
+        setSplitSteps(remaining);
+        const movedHalf = soloPush ? { x: nx + dx, y: ny + dy } : (soloHalf || {});
+        const otherHalf = soloLight
+          ? shadowWorld.entities.find(e => e.type === "half_shadow")
+          : lightWorld.entities.find(e => e.type === "half_light");
+        if (movedHalf.x === otherHalf?.x && movedHalf.y === otherHalf?.y) {
+          setMsg("The halves resonate. Snap back to collect.");
+        } else if (remaining <= 0) {
+          setMsg("Tether spent. Move again to snap back.");
+        } else {
+          setMsg(`${soloLight ? "Light" : "Shadow"} split: ${remaining} steps.`);
+        }
+        // Ghouls advance in the active split world only
+        const newLp = soloLight ? { x: nx, y: ny } : lightPos;
+        const newSp = soloLight ? shadowPos : { x: nx, y: ny };
+        tickGhoulsAndCheck(newLp, newSp);
         return;
       }
 
-      // Movement
-      if (nx !== plX || ny !== plY) {
-        // Room transition
-        if (nx < 0) { changeRoom(roomX - 1, roomY, ROOM_COLS - 2, plY); return; }
-        if (nx >= ROOM_COLS) { changeRoom(roomX + 1, roomY, 1, plY); return; }
-        if (ny < 0) { changeRoom(roomX, roomY - 1, plX, ROOM_ROWS - 2); return; }
-        if (ny >= ROOM_ROWS) { changeRoom(roomX, roomY + 1, plX, 1); return; }
+      // In mirror mode, shadow moves in the OPPOSITE direction
+      const mdx = mirrorSteps > 0 ? -dx : dx;
+      const mdy = mirrorSteps > 0 ? -dy : dy;
+      const nlx = lightPos.x + dx, nly = lightPos.y + dy;
+      const nsx = shadowPos.x + mdx, nsy = shadowPos.y + mdy;
+      const lOff = nlx < 0 || nlx >= GRID || nly < 0 || nly >= GRID;
+      const sOff = nsx < 0 || nsx >= GRID || nsy < 0 || nsy >= GRID;
 
-        const tile = room.tiles[ny]?.[nx];
-        if (tile === 0 || tile === undefined) {
-          const blocked = room.entities.find(en => !banished.has(en.id) && en.x === nx && en.y === ny && en.type !== "keeper");
-          if (!blocked) {
-            setPlX(nx); setPlY(ny); setSteps(s => s + 1);
-            const near = room.entities.find(en => !banished.has(en.id) && Math.abs(en.x - nx) <= 2 && Math.abs(en.y - ny) <= 2);
-            if (near) {
-              if (near.type === "demon") {
-                const d = DEMONS[near.subtype];
-                if (d.boss) setMsg("Something massive. You feel its hunger.");
-                else if (resolve < 20) setMsg(`A ${d.name} stirs. You feel fragile.`);
-                else if (resolve < 40) setMsg(`A ${d.name} stirs. Be careful.`);
-                else setMsg(pick([`A ${d.name} stirs.`, `You sense a ${d.name}.`, `The air thickens. A ${d.name}.`]));
-              }
-              else if (near.type === "soul") setMsg("A faint glow.");
-              else if (near.type === "shrine") setMsg("A shrine. Stone and silence.");
-              else if (near.type === "inscription") setMsg("Carved stone. Something is written.");
-              else if (near.type === "gate") setMsg(gateOpen ? "The gate stands open." : "A sealed gate pulses.");
-            } else if (Math.random() < 0.06) setMsg(pick(area === 1 ? AMBIENT1 : AMBIENT2));
-          }
-        } else if (tile === 2) setMsg("Dark water.");
-        else setMsg("Blocked.");
+      if (lOff || sOff) {
+        // Don't allow room transitions during mirror mode
+        if (mirrorSteps > 0) { setMsg("The mirror holds you here."); return; }
+        let nrx = roomX, nry = roomY, ex, ey;
+        if (dx === 1) { nrx++; ex = 1; ey = snap(lightPos.y); }
+        else if (dx === -1) { nrx--; ex = GRID - 2; ey = snap(lightPos.y); }
+        else if (dy === 1) { nry++; ey = 1; ex = snap(lightPos.x); }
+        else { nry--; ey = GRID - 2; ex = snap(lightPos.x); }
+        const room = generateDualRoom(nrx, nry, seed, chapter);
+        // Filter out already-collected shard halves
+        const isCollected = e => (e.type === "half_light" || e.type === "half_shadow") &&
+          (shards.has(e.id.replace(/_[ls]$/, "")) || voidShards.has(e.id.replace(/_[ls]$/, "")) || echoShards.has(e.id.replace(/_[ls]$/, "")));
+        room.light.entities = room.light.entities.filter(e => !isCollected(e));
+        room.shadow.entities = room.shadow.entities.filter(e => !isCollected(e));
+        if (isWalkable(room.light.tiles[ey][ex]) && isWalkable(room.shadow.tiles[ey][ex]) &&
+            !room.light.entities.some(e => isBlockingEntity(e) && e.x === ex && e.y === ey) &&
+            !room.shadow.entities.some(e => isBlockingEntity(e) && e.x === ex && e.y === ey)) {
+          setRoomX(nrx); setRoomY(nry);
+          setLightWorld(room.light); setShadowWorld(room.shadow);
+          setLightPos({ x: ex, y: ey }); setShadowPos({ x: ex, y: ey });
+          setVisited(v => { const s = new Set(v); s.add(`${nrx},${nry}`); return s; });
+          setSteps(s => s + 1); setMsg("");
+          // Reset door latches when entering a new room
+          setLDoorsLatched(false); setSDoorsLatched(false);
+          setLinkedPlates(!!room.linkedPlates);
+        } else { setMsg("The path is blocked."); }
+        return;
       }
+
+      // ── Check for aligned shard collection ──
+      const lHalf = lightWorld.entities.find(e => e.type === "half_light");
+      const sHalf = shadowWorld.entities.find(e => e.type === "half_shadow");
+      const aligned = lHalf && sHalf && lHalf.x === sHalf.x && lHalf.y === sHalf.y;
+      if (aligned && nlx === lHalf.x && nly === lHalf.y && nsx === sHalf.x && nsy === sHalf.y) {
+        // Collect the aligned shard!
+        const shardId = (lHalf.id || "").replace("_l", "");
+        setLightPos({ x: nlx, y: nly });
+        setShadowPos({ x: nsx, y: nsy });
+        setLightWorld(w => ({ ...w, entities: w.entities.filter(e => e.type !== "half_light") }));
+        setShadowWorld(w => ({ ...w, entities: w.entities.filter(e => e.type !== "half_shadow") }));
+        if (shardId.startsWith("echo_")) {
+          setEchoShards(prev => { const ns = new Set(prev); ns.add(shardId); return ns; });
+          const ct = echoShards.size + 1;
+          setShardMsg(ECHO_PICKUP_LINES[ct - 1] || `${ct}/${TOTAL_ECHO_SHARDS} - The echo sings.`);
+        } else if (shardId.startsWith("void_")) {
+          setVoidShards(prev => { const ns = new Set(prev); ns.add(shardId); return ns; });
+          const ct = voidShards.size + 1;
+          setShardMsg(VOID_PICKUP_LINES[ct - 1] || `${ct}/${TOTAL_VOID_SHARDS} - The void sings.`);
+        } else {
+          setShards(prev => { const ns = new Set(prev); ns.add(shardId); return ns; });
+          const ct = shards.size + 1;
+          setShardMsg(SHARD_PICKUP_LINES[ct - 1] || `${ct}/${TOTAL_SHARDS} - The shard sings.`);
+        }
+        setSteps(s => s + 1);
+        return;
+      }
+
+      // ── Check for half-shard pushing ──
+      const lPush = lightWorld.entities.find(e => (e.type === "half_light") && e.x === nlx && e.y === nly);
+      const sPush = shadowWorld.entities.find(e => (e.type === "half_shadow") && e.x === nsx && e.y === nsy);
+
+      // Validate pushes (shadow uses mirrored direction in mirror mode)
+      let lOk = true, sOk = true;
+      if (lPush) {
+        const pdx = nlx + dx, pdy = nly + dy;
+        if (pdx < 0 || pdx >= GRID || pdy < 0 || pdy >= GRID || !isWalkable(lightWorld.tiles[pdy][pdx], lDoorsOpen) ||
+            lightWorld.entities.some(e => e !== lPush && e.x === pdx && e.y === pdy)) {
+          lOk = false;
+        }
+      } else {
+        lOk = isWalkable(lightWorld.tiles[nly][nlx], lDoorsOpen) &&
+          !lightWorld.entities.some(e => isBlockingEntity(e) && e.x === nlx && e.y === nly);
+      }
+      if (sPush) {
+        const pdx = nsx + mdx, pdy = nsy + mdy;
+        if (pdx < 0 || pdx >= GRID || pdy < 0 || pdy >= GRID || !isWalkable(shadowWorld.tiles[pdy][pdx], sDoorsOpen) ||
+            shadowWorld.entities.some(e => e !== sPush && e.x === pdx && e.y === pdy)) {
+          sOk = false;
+        }
+      } else {
+        sOk = isWalkable(shadowWorld.tiles[nsy][nsx], sDoorsOpen) &&
+          !shadowWorld.entities.some(e => isBlockingEntity(e) && e.x === nsx && e.y === nsy);
+      }
+
+      if (lOk && sOk) {
+        // Execute pushes
+        if (lPush) {
+          setLightWorld(w => ({ ...w, entities: w.entities.map(e =>
+            e === lPush ? { ...e, x: nlx + dx, y: nly + dy } : e) }));
+        }
+        if (sPush) {
+          setShadowWorld(w => ({ ...w, entities: w.entities.map(e =>
+            e === sPush ? { ...e, x: nsx + mdx, y: nsy + mdy } : e) }));
+        }
+        // Move player
+        setLightPos({ x: nlx, y: nly });
+        setShadowPos({ x: nsx, y: nsy });
+        setSteps(s => s + 1);
+        // Check alignment after push
+        const nlH = lPush ? { x: nlx + dx, y: nly + dy } : (lHalf || {});
+        const nsH = sPush ? { x: nsx + mdx, y: nsy + mdy } : (sHalf || {});
+        if (nlH.x === nsH.x && nlH.y === nsH.y) {
+          setMsg("The halves resonate... Walk onto them!");
+        } else {
+          setMsg(lPush || sPush ? "" : "");
+        }
+        // Latch detection: check if any switch is pressed after the move
+        // Use the post-move shard positions for accurate latching
+        const postLightEnts = lPush
+          ? lightWorld.entities.map(e => e === lPush ? { ...e, x: nlx + dx, y: nly + dy } : e)
+          : lightWorld.entities;
+        const postShadowEnts = shadowWorld.entities.map(e => {
+          if (e === sPush) return { ...e, x: nsx + mdx, y: nsy + mdy };
+          return e;
+        });
+        const lightCheck = { tiles: lightWorld.tiles, entities: postLightEnts };
+        const shadowCheck = { tiles: shadowWorld.tiles, entities: postShadowEnts };
+        const lPressedNow = isPlatePressed(lightCheck, { x: nlx, y: nly });
+        const sPressedNow = isPlatePressed(shadowCheck, { x: nsx, y: nsy });
+        if (linkedPlates) {
+          // Linked: BOTH plates must be pressed on the same move to latch (requires mirror mode)
+          if (lPressedNow && sPressedNow) {
+            setSDoorsLatched(true);
+            setLDoorsLatched(true);
+          }
+        } else {
+          // Independent: each plate latches on its own
+          if (!sDoorsLatched && lPressedNow) setSDoorsLatched(true);
+          if (!lDoorsLatched && sPressedNow) setLDoorsLatched(true);
+        }
+
+        // Mirror mode: activate on mirror tile, tick down, snap back when spent
+        if (mirrorSteps > 0) {
+          const rem = mirrorSteps - 1;
+          setMirrorSteps(rem);
+          if (rem <= 0) {
+            // Snap both players back to the mirror anchor (like split mode)
+            if (mirrorAnchor) {
+              setLightPos(mirrorAnchor);
+              setShadowPos(mirrorAnchor);
+            }
+            setMirrorAnchor(null);
+            setMsg("The mirror fades. You return.");
+          } else {
+            setMsg(`Mirror: ${rem} steps.`);
+          }
+        } else if (lightWorld.tiles[nly]?.[nlx] === T.MIRROR || shadowWorld.tiles[nsy]?.[nsx] === T.MIRROR) {
+          setMirrorSteps(MIRROR_STEPS);
+          setMirrorAnchor({ x: nlx, y: nly });
+          setMsg(`\u25C6 MIRROR ACTIVATED \u2014 ${MIRROR_STEPS} INVERTED STEPS \u25C6`);
+        }
+        // Ghouls advance in both worlds
+        tickGhoulsAndCheck({ x: nlx, y: nly }, { x: nsx, y: nsy });
+      } else {
+        if (!lOk && !sOk) setMsg("Blocked in both worlds.");
+        else if (!lOk) setMsg("Blocked above.");
+        else setMsg("Blocked below.");
+      }
+      return;
     }
-  }, [gs, introLine, area, room, plX, plY, roomX, roomY, enc, encCh, encR, held, banished, journal, jOpen, keeperMsg, keeperT, loreN, loreFrags, homeView, savedRoom, gateOpen, potions, resolve, getW, encG, guided, seed, changeRoom, loadGame]);
+
+    if (key === "Escape" && splitMode) { snapSplit(); return; }
+    if (key === "Escape" && mirrorSteps > 0) {
+      if (mirrorAnchor) { setLightPos(mirrorAnchor); setShadowPos(mirrorAnchor); }
+      setMirrorAnchor(null); setMirrorSteps(0);
+      setMsg("The mirror snaps back.");
+      return;
+    }
+
+    if (key === "1") {
+      if (splitMode === "light") { snapSplit(); return; }
+      if (splitMode) { setMsg("Snap back first."); return; }
+      setSplitMode("light");
+      setSplitSteps(SPLIT_STEPS);
+      setSplitAnchor({ ...lightPos });
+      setMsg(`Light split: ${SPLIT_STEPS} steps.`);
+      return;
+    }
+    if (key === "2" || key === "j" || key === "J") {
+      if (splitMode === "shadow") { snapSplit(); return; }
+      if (splitMode) { setMsg("Snap back first."); return; }
+      setSplitMode("shadow");
+      setSplitSteps(SPLIT_STEPS);
+      setSplitAnchor({ ...shadowPos });
+      setMsg(`Shadow split: ${SPLIT_STEPS} steps.`);
+      return;
+    }
+
+    if (key === "Enter") {
+      if (splitMode) { setMsg("Snap back before interacting."); return; }
+      const dirs = [{ dx: 0, dy: -1 }, { dx: 0, dy: 1 }, { dx: -1, dy: 0 }, { dx: 1, dy: 0 }];
+      for (const d of dirs) {
+        const ax = lightPos.x + d.dx, ay = lightPos.y + d.dy;
+        if (ax < 0 || ax >= GRID || ay < 0 || ay >= GRID) continue;
+        const ent = lightWorld.entities.find(en => en.x === ax && en.y === ay);
+        if (ent) {
+          if (ent.type === "npc" && ent.dialogue) { setDialogueLines(getDialogue(ent.dialogue, shards, victory, chapter, voidShards, echoShards)); setDialogueLine(0); setGs("dialogue"); return; }
+          if (ent.type === "sign") { setMsg(ent.text || "..."); return; }
+        }
+      }
+      for (const d of dirs) {
+        const ax = shadowPos.x + d.dx, ay = shadowPos.y + d.dy;
+        if (ax < 0 || ax >= GRID || ay < 0 || ay >= GRID) continue;
+        const ent = shadowWorld.entities.find(en => en.x === ax && en.y === ay);
+        if (ent) {
+          if (ent.type === "npc" && ent.dialogue) { setDialogueLines(getDialogue(ent.dialogue, shards, victory, chapter, voidShards, echoShards)); setDialogueLine(0); setGs("dialogue"); return; }
+          if (ent.type === "sign") { setMsg(ent.text || "..."); return; }
+        }
+      }
+      setMsg("Nothing nearby.");
+    }
+  }, [gs, lightWorld, shadowWorld, lightPos, shadowPos, splitMode, splitSteps, splitAnchor,
+    dialogueLines, dialogueLine, roomX, roomY, seed, shards, shardMsg, caughtMsg, victory, chapter, voidShards, echoShards, mirrorSteps, mirrorAnchor, lDoorsLatched, sDoorsLatched, linkedPlates,
+    tickGhoulsAndCheck]);
 
   useEffect(() => { window.addEventListener("keydown", handleKey); return () => window.removeEventListener("keydown", handleKey); }, [handleKey]);
   useEffect(() => { render(); }, [render]);
-  // No animation interval — e-ink renders only on state change via the render useEffect above
 
   return (
-    <div tabIndex={0} autoFocus style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#121212", fontFamily: "'Courier New',monospace", outline: "none" }}>
-      <div style={{ background: "#222", padding: "20px", borderRadius: "16px", boxShadow: "0 16px 48px rgba(0,0,0,0.8)", border: "1px solid #333" }}>
-        <div style={{ fontSize: "9px", color: "#555", textAlign: "center", marginBottom: "10px", letterSpacing: "5px" }}>XTEINK X4 · SOUL SEARCHER</div>
-        <canvas ref={cvs} width={W} height={H} style={{ width: W, height: H, borderRadius: "4px", imageRendering: "pixelated", border: "1px solid #444", background: WHT }} />
-        <div style={{ display: "flex", justifyContent: "center", gap: "6px", marginTop: "14px" }}>
-          {["ESC Home", "↑", "↓", "←", "→", "⏎ Act"].map(l => <div key={l} style={{ background: "#333", color: "#777", fontSize: "10px", padding: "6px 12px", borderRadius: "6px", border: "1px solid #444" }}>{l}</div>)}
+    <div tabIndex={0} autoFocus style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#121212",fontFamily:"'Courier New',monospace",outline:"none" }}>
+      <div style={{ background:"#222",padding:"20px",borderRadius:"16px",boxShadow:"0 16px 48px rgba(0,0,0,0.8)",border:"1px solid #333" }}>
+        <div style={{ fontSize:"9px",color:"#555",textAlign:"center",marginBottom:"10px",letterSpacing:"5px" }}>XTEINK X4 &middot; RIFTBOUND</div>
+        <canvas ref={cvs} width={W} height={H} style={{ width:W,height:H,borderRadius:"4px",imageRendering:"pixelated",border:"1px solid #444",background:WHT }} />
+        <div style={{ display:"flex",justifyContent:"center",gap:"6px",marginTop:"14px",flexWrap:"wrap" }}>
+          {["Split Light (1)","\u2191","\u2193","\u2190","\u2192","Split Shadow (2)","\u23CE Act"].map(l=>(
+            <div key={l} style={{ background:"#333",color:"#777",fontSize:"10px",padding:"6px 10px",borderRadius:"6px",border:"1px solid #444" }}>{l}</div>
+          ))}
         </div>
-        <div style={{ fontSize: "9px", color: "#444", textAlign: "center", marginTop: "8px" }}>ESC = Close Eyes · J = Journal · ENTER at grave = Home View</div>
+        <div style={{ fontSize:"9px",color:"#444",textAlign:"center",marginTop:"8px" }}>1 = Split Light &middot; 2 = Split Shadow &middot; ENTER = Interact</div>
       </div>
     </div>
   );
