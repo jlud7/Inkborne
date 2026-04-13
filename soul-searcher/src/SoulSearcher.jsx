@@ -879,10 +879,11 @@ export default function SoulSearcher() {
 
     if (gs === "intro") {
       ctx.fillStyle = BLK; ctx.fillRect(0, 0, W, H); ctx.fillStyle = WHT;
-      ctx.font = "bold 24px 'Courier New',monospace";
+      ctx.font = "bold 32px 'Courier New',monospace";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText("Riftbound.", W / 2, H / 2 - 80);
-      ctx.fillText("Two halves. One truth.", W / 2, H / 2 - 30);
+      ctx.fillText("DIPTYCH", W / 2, H / 2 - 90);
+      ctx.font = "italic 14px 'Courier New',monospace";
+      ctx.fillText("To be whole, you must first be two.", W / 2, H / 2 - 40);
       ds(ctx, "player", W / 2 - 12, H / 2 + 30);
       ctx.font = "14px 'Courier New',monospace";
       ctx.fillText("[ ENTER ]", W / 2, H / 2 + 110);
