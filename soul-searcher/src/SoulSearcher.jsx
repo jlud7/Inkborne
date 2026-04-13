@@ -870,19 +870,29 @@ export default function SoulSearcher() {
       ctx.fillStyle = BLK; ctx.fillRect(0, 0, W, H); ctx.fillStyle = WHT;
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       // Title
-      ctx.font = "bold 36px 'Courier New',monospace";
-      ctx.fillText("DIPTYCH", W / 2, H / 2 - 120);
-      // Dictionary-style definition
-      ctx.font = "italic 13px 'Courier New',monospace";
-      ctx.fillText("/\u02C8diptik/  noun", W / 2, H / 2 - 80);
+      ctx.font = "bold 40px 'Courier New',monospace";
+      ctx.fillText("DIPTYCH", W / 2, 130);
+      // Dictionary-style definition — larger
+      ctx.font = "italic 16px 'Courier New',monospace";
+      ctx.fillText("/\u02C8diptik/  noun", W / 2, 180);
+      ctx.font = "15px 'Courier New',monospace";
+      ctx.fillText("An artwork made of two related panels", W / 2, 215);
+      ctx.fillText("that are meant to be viewed together", W / 2, 238);
+      ctx.fillText("as one piece.", W / 2, 261);
+      // Divider
+      ctx.fillRect(W / 2 - 40, 300, 80, 1);
+      // Controls
+      ctx.font = "bold 11px 'Courier New',monospace";
+      ctx.fillText("CONTROLS", W / 2, 325);
       ctx.font = "12px 'Courier New',monospace";
-      ctx.fillText("An artwork made of two related panels", W / 2, H / 2 - 50);
-      ctx.fillText("that are meant to be viewed together", W / 2, H / 2 - 32);
-      ctx.fillText("as one piece.", W / 2, H / 2 - 14);
+      ctx.fillText("\u2191 \u2193 \u2190 \u2192    walk in both worlds", W / 2, 355);
+      ctx.fillText("1           light walks alone", W / 2, 385);
+      ctx.fillText("2           shadow walks alone", W / 2, 415);
+      ctx.fillText("ENTER       speak, confirm", W / 2, 445);
       // Player sprite + prompt
-      ds(ctx, "player", W / 2 - 12, H / 2 + 40);
+      ds(ctx, "player", W / 2 - 12, 500);
       ctx.font = "14px 'Courier New',monospace";
-      ctx.fillText("[ ENTER ]", W / 2, H / 2 + 120);
+      ctx.fillText("[ ENTER to begin ]", W / 2, 580);
       ctx.textAlign = "left"; ctx.textBaseline = "alphabetic"; return;
     }
 
