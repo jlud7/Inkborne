@@ -168,6 +168,26 @@ def("mirror_tile", [
   "000000100000000001000000","000001000011100000100000","000010000111110000010000",
   "000010001111111000010000","000001001111111000100000","000000111111111110000000",
 ]);
+def("headstone", [
+  "000000000000000000000000","000000000000000000000000","000000011111111100000000",
+  "000000111111111110000000","000001111111111111000000","000011111111111111100000",
+  "000011111111111111100000","000011110000001111100000","000011110011001111100000",
+  "000011110011001111100000","000011110011001111100000","000011110000001111100000",
+  "000011111111111111100000","000011111111111111100000","000011111111111111100000",
+  "000011111111111111100000","000011111111111111100000","000011111111111111100000",
+  "000011111111111111100000","000011111111111111100000","000011111111111111100000",
+  "000011111111111111100000","000111111111111111110000","000111111111111111110000",
+]);
+def("bell", [
+  "000000000000000000000000","000000000001100000000000","000000000011110000000000",
+  "000000000111111000000000","000000001111111100000000","000000011111111110000000",
+  "000000111111111111000000","000001111111111111100000","000011111111111111110000",
+  "000011111111111111110000","000011111111111111110000","000011111111111111110000",
+  "000011111111111111110000","000011111111111111110000","000011111111111111110000",
+  "000011111111111111110000","000111111111111111111000","000111111111111111111000",
+  "000011111111111111110000","000000000011110000000000","000000000011110000000000",
+  "000000000001100000000000","000000000000000000000000","000000000000000000000000",
+]);
 
 // ── Parse room ──────────────────────────────────────────────────
 function parseRoom(str) {
@@ -226,7 +246,7 @@ const ECHO_PICKUP_LINES = [
   "IV. The mirror says the name you had forgotten.",
   "V. The reflection lowers its hand. You lower yours.",
 ];
-const isBlockingEntity = e => e.type === "npc";
+const isBlockingEntity = e => e.type === "npc" || (e.type === "sign" && e.blocking);
 
 // ── Ghoul AI ───────────────────────────────────────────────────
 function moveGhouls(entities, tiles, playerPos) {
@@ -407,6 +427,127 @@ function getTutorialRoom(rx, ry) {
       entities: [{ id: "shard_4_l", type: "half_light", sprite: "half_light", x: 12, y: 3 }] },
     shadow: { tiles: parseRoom(pointWalls([[5,11], [4,6], [8,7], [2,10], [11,4],[11,3]])),
       entities: [{ id: "shard_4_s", type: "half_shadow", sprite: "half_shadow", x: 2, y: 11 }] }
+  };
+
+  // ── Easter eggs at the far corners of the bounded world ────────
+
+  // (4, -4): The Graveyard — rows of headstones, one bears a name.
+  if (rx === 4 && ry === -4) return {
+    light: {
+      tiles: parseRoom(emptyRoom()),
+      entities: [
+        { id: "grave_l1", type: "sign", sprite: "headstone", x: 3, y: 4, blocking: true,
+          lines: ["Here rests one who was two.", "They forgot which half was first."] },
+        { id: "grave_l2", type: "sign", sprite: "headstone", x: 7, y: 4, blocking: true,
+          lines: [
+            "Here begins the one who carved the hinge.",
+            "\u2014  J A M E S  \u2014",
+            "@JLUDDY7",
+            "x.com/JLUDDY7",
+          ] },
+        { id: "grave_l3", type: "sign", sprite: "headstone", x: 11, y: 4, blocking: true,
+          lines: ["Almost a shape again.", "Almost."] },
+        { id: "grave_l4", type: "sign", sprite: "headstone", x: 3, y: 10, blocking: true,
+          lines: ["Name forgotten.", "Halves never met."] },
+        { id: "grave_l5", type: "sign", sprite: "headstone", x: 7, y: 10, blocking: true,
+          lines: ["They lost the thread."] },
+        { id: "grave_l6", type: "sign", sprite: "headstone", x: 11, y: 10, blocking: true,
+          lines: ["They looked too long at the light."] },
+      ]
+    },
+    shadow: {
+      tiles: parseRoom(emptyRoom()),
+      entities: [
+        { id: "grave_s1", type: "sign", sprite: "headstone", x: 3, y: 4, blocking: true,
+          lines: ["The dark was kind.", "Or so she said."] },
+        { id: "grave_s2", type: "sign", sprite: "headstone", x: 7, y: 4, blocking: true,
+          lines: ["The stone does not know who lies beneath.", "Neither do you."] },
+        { id: "grave_s3", type: "sign", sprite: "headstone", x: 11, y: 4, blocking: true,
+          lines: ["She walked through the mirror.", "She did not walk back."] },
+        { id: "grave_s4", type: "sign", sprite: "headstone", x: 3, y: 10, blocking: true,
+          lines: ["The hinge forgot them."] },
+        { id: "grave_s5", type: "sign", sprite: "headstone", x: 7, y: 10, blocking: true,
+          lines: ["They thought they were one.", "They were not yet two."] },
+        { id: "grave_s6", type: "sign", sprite: "headstone", x: 11, y: 10, blocking: true,
+          lines: ["He came twice.", "Once as light. Once as dark.", "Neither returned."] },
+      ]
+    }
+  };
+
+  // (-4, 4): The First Diptych — two figures standing as one piece.
+  if (rx === -4 && ry === 4) return {
+    light: {
+      tiles: parseRoom(emptyRoom()),
+      entities: [
+        { id: "fd_fig1", type: "sign", sprite: "player", x: 6, y: 7, blocking: true,
+          lines: ["A figure of light.", "Standing as it was before the panels parted."] },
+        { id: "fd_fig2", type: "sign", sprite: "player", x: 8, y: 7, blocking: true,
+          lines: ["A figure of shadow.", "Standing as it was before the panels parted."] },
+        { id: "fd_plaque", type: "sign", sprite: "sign", x: 7, y: 10, blocking: true,
+          lines: [
+            "Before the panels parted.",
+            "Before the hinge.",
+            "There was only a figure.",
+          ] },
+      ]
+    },
+    shadow: {
+      tiles: parseRoom(emptyRoom()),
+      entities: [
+        { id: "fd_fig3", type: "sign", sprite: "player", x: 6, y: 7, blocking: true,
+          lines: ["A figure of light.", "It is watching you. So are you."] },
+        { id: "fd_fig4", type: "sign", sprite: "player", x: 8, y: 7, blocking: true,
+          lines: ["A figure of shadow.", "It is watching you. So are you."] },
+      ]
+    }
+  };
+
+  // (-4, 0): The Empty Watcher — mirror of the starting room, but she is gone.
+  if (rx === -4 && ry === 0) return {
+    light: {
+      tiles: parseRoom(
+        "...............\n...............\n..T.........T..\n...............\n...............\n...............\n...............\n" +
+        "...............\n...............\n...............\n...............\n...............\n..T.........T..\n...............\n..............."),
+      entities: [
+        { id: "ew_sign", type: "sign", sprite: "sign", x: 5, y: 7, blocking: true,
+          lines: [
+            "The one who waits is not here.",
+            "She has gone to look for what she lost.",
+            "Or perhaps she was never here at all.",
+          ] },
+      ]
+    },
+    shadow: {
+      tiles: parseRoom(
+        "...............\n...............\n...............\n...T.......T...\n...............\n...............\n...............\n" +
+        "...............\n...............\n...............\n...............\n...T.......T...\n...............\n...............\n..............."),
+      entities: []
+    }
+  };
+
+  // (0, 4): The Bell — a bell remembered by the Sage.
+  if (rx === 0 && ry === 4) return {
+    light: {
+      tiles: parseRoom(emptyRoom()),
+      entities: [
+        { id: "bell_l", type: "sign", sprite: "bell", x: 7, y: 7, blocking: true,
+          lines: [
+            "The bell has already rung.",
+            "You could not have heard it.",
+            "You were not yet two.",
+          ] },
+      ]
+    },
+    shadow: {
+      tiles: parseRoom(emptyRoom()),
+      entities: [
+        { id: "bell_s", type: "sign", sprite: "bell", x: 7, y: 7, blocking: true,
+          lines: [
+            "The sound is still in the stone.",
+            "The stone is still listening.",
+          ] },
+      ]
+    }
   };
 
   return null;
@@ -1582,6 +1723,11 @@ export default function SoulSearcher() {
         else if (dx === -1) { nrx--; ex = GRID - 2; ey = snap(lightPos.y); }
         else if (dy === 1) { nry++; ey = 1; ex = snap(lightPos.x); }
         else { nry--; ey = GRID - 2; ex = snap(lightPos.x); }
+        // Bounded world: nothing beyond radius 4
+        if (Math.abs(nrx) > 4 || Math.abs(nry) > 4) {
+          setMsg("There is nothing beyond. The page ends here.");
+          return;
+        }
         const room = generateDualRoom(nrx, nry, seed, chapter);
         // Filter out already-collected shard halves
         const isCollected = e => (e.type === "half_light" || e.type === "half_shadow") &&
@@ -1767,7 +1913,10 @@ export default function SoulSearcher() {
         const ent = lightWorld.entities.find(en => en.x === ax && en.y === ay);
         if (ent) {
           if (ent.type === "npc" && ent.dialogue) { setDialogueLines(getDialogue(ent.dialogue, shards, victory, chapter, voidShards, echoShards)); setDialogueLine(0); setGs("dialogue"); return; }
-          if (ent.type === "sign") { setMsg(ent.text || "..."); return; }
+          if (ent.type === "sign") {
+            if (ent.lines) { setDialogueLines(ent.lines); setDialogueLine(0); setGs("dialogue"); return; }
+            setMsg(ent.text || "..."); return;
+          }
         }
       }
       for (const d of dirs) {
@@ -1776,7 +1925,10 @@ export default function SoulSearcher() {
         const ent = shadowWorld.entities.find(en => en.x === ax && en.y === ay);
         if (ent) {
           if (ent.type === "npc" && ent.dialogue) { setDialogueLines(getDialogue(ent.dialogue, shards, victory, chapter, voidShards, echoShards)); setDialogueLine(0); setGs("dialogue"); return; }
-          if (ent.type === "sign") { setMsg(ent.text || "..."); return; }
+          if (ent.type === "sign") {
+            if (ent.lines) { setDialogueLines(ent.lines); setDialogueLine(0); setGs("dialogue"); return; }
+            setMsg(ent.text || "..."); return;
+          }
         }
       }
       setMsg("Nothing answers you here.");
