@@ -32,4 +32,5 @@ pio run -e default -t upload --upload-port /dev/cu.usbmodem1101       # flash
 
 ## Snapshots
 
-- `2026-04-12-baseline/` — first backup. Holds the firmware image that was originally built on 2026-04-10 and is still what's running on the device. Source is copied from the live checkout on 2026-04-12 (unchanged since the Apr 10 build).
+- `2026-04-12-baseline/` — first backup. Holds the firmware image that was originally built on 2026-04-10. Chapter 1 only, ~1061 lines of `DiptychActivity` code.
+- `2026-04-13-full-port/` — first full-parity port of Diptych. Three chapters, 15 shards, bounded 9×9 world, ghouls, pressure plates, mirror mode, hearts, 8 easter eggs, Bloodborne-voice dialogue. Grew `DiptychActivity` to ~2658 lines. This is what's currently running on the device.
