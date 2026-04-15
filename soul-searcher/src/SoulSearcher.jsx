@@ -2094,7 +2094,7 @@ export default function SoulSearcher() {
     outline: "none",
     padding: 0,
   };
-  const splitBtn = { ...btnBase, flex: 1, height: "40px", fontSize: "11px", letterSpacing: "1px" };
+  const splitBtn = { ...btnBase, height: "44px", fontSize: "11px", letterSpacing: "1px", padding: "0 6px", width: "100%" };
   const dpadBtn = { ...btnBase, width: "48px", height: "48px", fontSize: "22px", lineHeight: 1 };
   const actBtn = { ...btnBase, width: "72px", height: "72px", fontSize: "13px", letterSpacing: "1px", flexDirection: "column", gap: "2px" };
   const dpadSpacer = { width: "48px", height: "48px" };
@@ -2106,15 +2106,9 @@ export default function SoulSearcher() {
       <div style={{ background:"#222",padding:"14px",borderRadius:"16px",boxShadow:"0 16px 48px rgba(0,0,0,0.8)",border:"1px solid #333",width:"100%",maxWidth:`${W + 28}px`,boxSizing:"border-box" }}>
         <canvas ref={cvs} width={W} height={H} style={{ width:"100%",height:"auto",aspectRatio:`${W} / ${H}`,display:"block",borderRadius:"4px",imageRendering:"pixelated",border:"1px solid #444",background:WHT }} />
 
-        {/* Split mode toggles */}
-        <div style={{ display:"flex",gap:"8px",marginTop:"14px" }}>
-          <button type="button" style={splitBtn} onClick={press("1")}>SPLIT LIGHT&nbsp;&middot;&nbsp;1</button>
-          <button type="button" style={splitBtn} onClick={press("2")}>SPLIT SHADOW&nbsp;&middot;&nbsp;2</button>
-        </div>
-
-        {/* D-pad + Act */}
-        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:"12px",padding:"0 4px" }}>
-          <div style={{ display:"grid",gridTemplateColumns:"48px 48px 48px",gridTemplateRows:"48px 48px 48px",gap:"4px" }}>
+        {/* D-pad + Split stack + Act */}
+        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:"14px",gap:"10px" }}>
+          <div style={{ display:"grid",gridTemplateColumns:"48px 48px 48px",gridTemplateRows:"48px 48px 48px",gap:"4px",flexShrink:0 }}>
             <div style={dpadSpacer} />
             <button type="button" style={dpadBtn} onClick={press("ArrowUp")} aria-label="Up">&#9650;</button>
             <div style={dpadSpacer} />
@@ -2125,6 +2119,12 @@ export default function SoulSearcher() {
             <button type="button" style={dpadBtn} onClick={press("ArrowDown")} aria-label="Down">&#9660;</button>
             <div style={dpadSpacer} />
           </div>
+
+          <div style={{ display:"flex",flexDirection:"column",gap:"8px",flex:1,minWidth:0 }}>
+            <button type="button" style={splitBtn} onClick={press("1")}>1&nbsp;&middot;&nbsp;LIGHT</button>
+            <button type="button" style={splitBtn} onClick={press("2")}>2&nbsp;&middot;&nbsp;SHADOW</button>
+          </div>
+
           <button type="button" style={actBtn} onClick={press("Enter")} aria-label="Act">
             <span style={{ fontSize:"20px",lineHeight:1 }}>&#9166;</span>
             <span>ACT</span>
