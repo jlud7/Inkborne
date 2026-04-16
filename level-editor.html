@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diptych · Level Editor</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #1a1a1a;
+      color: #f4f1e8;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 13px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding-bottom: 28px;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #111;
+      border-bottom: 2px solid #2a2a2a;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    header h1 { font-size: 13px; letter-spacing: 3px; color: #f4f1e8; }
+
+    .coord-row { display: flex; align-items: center; gap: 8px; }
+    .coord-row label { color: #666; font-size: 11px; letter-spacing: 1px; }
+
+    input[type=number] {
+      width: 54px;
+      background: #1a1a1a;
+      border: 1px solid #3a3a3a;
+      color: #f4f1e8;
+      font-family: inherit;
+      font-size: 13px;
+      padding: 4px 6px;
+      outline: none;
+    }
+    input[type=number]:focus { border-color: #888; }
+
+    .header-btns { margin-left: auto; display: flex; gap: 6px; }
+
+    /* ── Buttons ── */
+    .btn {
+      background: transparent;
+      border: 1px solid #444;
+      color: #ccc;
+      font-family: inherit;
+      font-size: 11px;
+      padding: 5px 11px;
+      cursor: pointer;
+      letter-spacing: 1px;
+    }
+    .btn:hover { background: #252525; border-color: #777; color: #f4f1e8; }
+    .btn.hi { border-color: #f4f1e8; color: #f4f1e8; }
+    .btn.danger { border-color: #883333; color: #cc6666; }
+    .btn.danger:hover { background: #1f1010; border-color: #cc4444; }
+
+    /* ── Workspace ── */
+    .workspace {
+      display: flex;
+      flex: 1;
+      overflow: auto;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 170px;
+      flex-shrink: 0;
+      background: #111;
+      border-right: 1px solid #222;
+      padding: 12px 10px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .sec-label {
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: #444;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+
+    .mode-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: 1px solid transparent;
+      color: #666;
+      font-family: inherit;
+      font-size: 12px;
+      padding: 4px 8px;
+      cursor: pointer;
+      margin-bottom: 2px;
+    }
+    .mode-btn:hover { color: #f4f1e8; background: #1e1e1e; }
+    .mode-btn.active { color: #f4f1e8; border-color: #555; background: #1e1e1e; }
+
+    .palette-btn {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: 1px solid transparent;
+      color: #666;
+      font-family: inherit;
+      font-size: 11px;
+      padding: 3px 7px;
+      cursor: pointer;
+      margin-bottom: 1px;
+    }
+    .palette-btn:hover { color: #f4f1e8; background: #1e1e1e; }
+    .palette-btn.active { color: #f4f1e8; border-color: #555; background: #1e1e1e; }
+
+    .swatch {
+      width: 13px; height: 13px;
+      border: 1px solid #3a3a3a;
+      flex-shrink: 0;
+      display: inline-block;
+    }
+    .eicon {
+      width: 13px;
+      text-align: center;
+      font-size: 13px;
+      flex-shrink: 0;
+      line-height: 1;
+    }
+
+    .sidebar-hint {
+      font-size: 10px;
+      color: #444;
+      line-height: 1.6;
+    }
+    .sidebar-hint b { color: #666; }
+
+    /* ── Canvas area ── */
+    .canvas-area {
+      flex: 1;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow: auto;
+    }
+
+    .worlds-row { display: flex; gap: 20px; align-items: flex-start; }
+
+    .world-panel { display: flex; flex-direction: column; gap: 5px; }
+    .world-title {
+      font-size: 10px;
+      letter-spacing: 3px;
+      color: #666;
+      text-align: center;
+    }
+
+    canvas {
+      display: block;
+      cursor: crosshair;
+      border: 1px solid #2a2a2a;
+      image-rendering: pixelated;
+    }
+
+    /* ── Output ── */
+    .output-area {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .output-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .output-header .sec-label { margin: 0; }
+
+    textarea {
+      width: 100%;
+      height: 200px;
+      background: #0d0d0d;
+      border: 1px solid #222;
+      color: #88c888;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 11px;
+      padding: 10px;
+      resize: vertical;
+      outline: none;
+      tab-size: 2;
+    }
+    textarea:focus { border-color: #3a3a3a; }
+
+    .usage-note {
+      font-size: 10px;
+      color: #444;
+      line-height: 1.7;
+    }
+    .usage-note b { color: #666; }
+
+    /* ── Status bar ── */
+    .statusbar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: #0d0d0d;
+      border-top: 1px solid #1e1e1e;
+      padding: 4px 16px;
+      display: flex;
+      gap: 24px;
+      font-size: 10px;
+      color: #444;
+    }
+
+    /* ── Modal ── */
+    .modal-bg {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-bg.open { display: flex; }
+
+    .modal {
+      background: #1a1a1a;
+      border: 1px solid #555;
+      padding: 20px;
+      width: 380px;
+      max-width: 95vw;
+    }
+    .modal h2 { font-size: 12px; letter-spacing: 2px; margin-bottom: 14px; }
+
+    .fgroup { margin-bottom: 10px; }
+    .fgroup label { display: block; font-size: 10px; color: #666; margin-bottom: 3px; letter-spacing: 1px; }
+    .fgroup input[type=text],
+    .fgroup textarea,
+    .fgroup select {
+      width: 100%;
+      background: #111;
+      border: 1px solid #3a3a3a;
+      color: #f4f1e8;
+      font-family: inherit;
+      font-size: 12px;
+      padding: 5px 7px;
+      outline: none;
+    }
+    .fgroup textarea { height: 70px; resize: vertical; color: #f4f1e8; }
+    .fgroup select { background: #111; }
+    .fgroup input[type=checkbox] { margin-right: 5px; }
+
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>DIPTYCH &middot; LEVEL EDITOR</h1>
+  <div class="coord-row">
+    <label>ROOM</label>
+    <label>rx</label>
+    <input type="number" id="rxInput" value="5" min="-10" max="10">
+    <label>ry</label>
+    <input type="number" id="ryInput" value="5" min="-10" max="10">
+  </div>
+  <div class="header-btns">
+    <button class="btn" onclick="saveRoom()">Save</button>
+    <button class="btn" onclick="loadRoom()">Load</button>
+    <button class="btn hi" onclick="generateCode()">Export JS</button>
+  </div>
+</header>
+
+<div class="workspace">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+
+    <div>
+      <div class="sec-label">Mode</div>
+      <button class="mode-btn active" id="modeBtn_tile"   onclick="setMode('tile')">&#9632; Paint Tiles</button>
+      <button class="mode-btn"        id="modeBtn_entity" onclick="setMode('entity')">&#9670; Place Entity</button>
+      <button class="mode-btn"        id="modeBtn_erase"  onclick="setMode('erase')">&#10005; Erase</button>
+    </div>
+
+    <div id="tilePaletteWrap">
+      <div class="sec-label">Tile</div>
+      <div id="tilePalette"></div>
+    </div>
+
+    <div id="entityPaletteWrap" style="display:none">
+      <div class="sec-label">Entity</div>
+      <div id="entityPalette"></div>
+    </div>
+
+    <div>
+      <div class="sec-label">Clear</div>
+      <button class="btn danger" style="width:100%;margin-bottom:3px" onclick="clearWorld('light')">Clear Light</button>
+      <button class="btn danger" style="width:100%;margin-bottom:3px" onclick="clearWorld('shadow')">Clear Shadow</button>
+      <button class="btn danger" style="width:100%"                    onclick="clearWorld('both')">Clear Both</button>
+    </div>
+
+    <div class="sidebar-hint">
+      <b>Right-click</b> = erase<br>
+      <b>Drag</b> = paint fill<br>
+      <b>Entity mode click</b> = remove<br>
+      <b>Keys 1-7</b> = select tile<br>
+      <b>Esc</b> = close modal
+    </div>
+
+  </div>
+
+  <!-- Canvas + Output -->
+  <div class="canvas-area">
+
+    <div class="worlds-row">
+      <div class="world-panel">
+        <div class="world-title">LIGHT &nbsp; WORLD</div>
+        <canvas id="lightCanvas" width="480" height="480"></canvas>
+      </div>
+      <div class="world-panel">
+        <div class="world-title">SHADOW &nbsp; WORLD</div>
+        <canvas id="shadowCanvas" width="480" height="480"></canvas>
+      </div>
+    </div>
+
+    <div class="output-area">
+      <div class="output-header">
+        <span class="sec-label">Generated JS Code</span>
+        <button class="btn" onclick="generateCode()">Generate</button>
+        <button class="btn" onclick="copyCode()">Copy</button>
+        <button class="btn" onclick="importJSON()">Import State</button>
+      </div>
+      <textarea id="codeOut" readonly spellcheck="false"
+        placeholder="Click Generate to produce code you can paste into SoulSearcher.jsx ..."></textarea>
+      <div class="usage-note">
+        <b>How to add to the game:</b>
+        Find <b>getTutorialRoom</b>, <b>getChapter2Room</b>, or <b>getChapter3Room</b> in
+        <b>soul-searcher/src/SoulSearcher.jsx</b> and paste the generated block before the
+        closing <b>return null</b>. Pick rx/ry coordinates not already used by existing rooms.
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="statusbar">
+  <span id="stPos">—</span>
+  <span id="stMode">mode: paint &middot; Wall</span>
+  <span id="stCount">entities: L=0 S=0</span>
+</div>
+
+<!-- Entity modal -->
+<div class="modal-bg" id="entityModal">
+  <div class="modal">
+    <h2 id="modalTitle">PLACE ENTITY</h2>
+    <div id="modalFields"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="cancelModal()">Cancel</button>
+      <button class="btn hi" onclick="confirmModal()">Place</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Constants ────────────────────────────────────────────────────
+const GRID = 15;
+const TS   = 32; // tile size in editor (px)
+const CS   = GRID * TS; // canvas size = 480
+
+const T = { EMPTY:0, WALL:1, TREE:2, WATER:3, DOOR:4, SWITCH:5, MIRROR:6 };
+
+const TILE_INFO = [
+  { id:0, ch:'.', name:'Empty',  lc:'#e4e1d8', sc:'#0c0c0c' },
+  { id:1, ch:'#', name:'Wall',   lc:'#2c2c2c', sc:'#222222' },
+  { id:2, ch:'T', name:'Tree',   lc:'#1d6b2e', sc:'#0d3b18' },
+  { id:3, ch:'~', name:'Water',  lc:'#1a3f9c', sc:'#0a1f5c' },
+  { id:4, ch:'D', name:'Door',   lc:'#9c6010', sc:'#5a2f00' },
+  { id:5, ch:'S', name:'Switch', lc:'#8a1090', sc:'#4a0060' },
+  { id:6, ch:'M', name:'Mirror', lc:'#008898', sc:'#004858' },
+];
+
+// Each palette entry: key used in state, entity type+sprite written to export
+const ENT_PAL = [
+  { key:'half_light',  type:'half_light',  sprite:'half_light',  label:'Shard Light',   color:'#d4a020', icon:'◆' },
+  { key:'half_shadow', type:'half_shadow',  sprite:'half_shadow',  label:'Shard Shadow',  color:'#7a6010', icon:'◆' },
+  { key:'ghoul',       type:'ghoul',        sprite:'ghoul',        label:'Ghoul',         color:'#cc2222', icon:'●' },
+  { key:'sign',        type:'sign',         sprite:'sign',         label:'Sign',          color:'#c8c4b4', icon:'▬' },
+  { key:'headstone',   type:'sign',         sprite:'headstone',    label:'Headstone',     color:'#888888', icon:'†' },
+  { key:'npc',         type:'npc',          sprite:'npc',          label:'NPC',           color:'#88cc88', icon:'☻' },
+];
+
+// ── State ────────────────────────────────────────────────────────
+const st = {
+  light:  { tiles: emptyGrid(), ents: [] },
+  shadow: { tiles: emptyGrid(), ents: [] },
+  mode: 'tile',
+  selTile: 1,       // T.WALL
+  selEnt:  'half_light',
+  painting: false,
+  paintErase: false,
+  activeWorld: null,
+  lastCell: null,
+  hov: { w: null, x: -1, y: -1 },
+};
+
+function emptyGrid() {
+  return Array.from({length: GRID}, () => new Int8Array(GRID));
+}
+
+// ── Canvas ───────────────────────────────────────────────────────
+const LC  = document.getElementById('lightCanvas');
+const SC  = document.getElementById('shadowCanvas');
+const lx  = LC.getContext('2d');
+const sx  = SC.getContext('2d');
+
+// ── Drawing ──────────────────────────────────────────────────────
+function tileColor(id, light) {
+  const t = TILE_INFO[id];
+  return t ? (light ? t.lc : t.sc) : (light ? '#e4e1d8' : '#0c0c0c');
+}
+
+function drawWorld(ctx, world, isLight) {
+  const bg   = isLight ? '#e4e1d8' : '#0c0c0c';
+  const grid = isLight ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.05)';
+  const lblc = isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.2)';
+  const wid  = isLight ? 'light' : 'shadow';
+
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, CS, CS);
+
+  // Tiles
+  for (let y = 0; y < GRID; y++) {
+    for (let x = 0; x < GRID; x++) {
+      const t = world.tiles[y][x];
+      if (t !== T.EMPTY) {
+        ctx.fillStyle = tileColor(t, isLight);
+        ctx.fillRect(x*TS, y*TS, TS, TS);
+        ctx.fillStyle = lblc;
+        ctx.font = '9px Courier New';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText(TILE_INFO[t].ch, x*TS+3, y*TS+3);
+      }
+    }
+  }
+
+  // Grid lines
+  ctx.strokeStyle = grid;
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= GRID; i++) {
+    ctx.beginPath(); ctx.moveTo(i*TS+.5, 0); ctx.lineTo(i*TS+.5, CS); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, i*TS+.5); ctx.lineTo(CS, i*TS+.5); ctx.stroke();
+  }
+
+  // Entities
+  for (const e of world.ents) drawEnt(ctx, e, isLight);
+
+  // Hover
+  if (st.hov.w === wid && st.hov.x >= 0) {
+    ctx.strokeStyle = isLight ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(st.hov.x*TS+1, st.hov.y*TS+1, TS-2, TS-2);
+  }
+}
+
+function drawEnt(ctx, e, isLight) {
+  const def = ENT_PAL.find(d => d.type === e.type && d.sprite === e.sprite)
+           || ENT_PAL.find(d => d.type === e.type);
+  if (!def) return;
+  const cx = e.x*TS + TS/2, cy = e.y*TS + TS/2, r = TS/2 - 5;
+
+  // Drop shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.beginPath(); ctx.arc(cx+1, cy+1, r, 0, Math.PI*2); ctx.fill();
+
+  // Fill
+  ctx.fillStyle = def.color;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+
+  // Icon
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(def.icon, cx, cy + 0.5);
+}
+
+function redraw() {
+  drawWorld(lx, st.light,  true);
+  drawWorld(sx, st.shadow, false);
+  updateStatus();
+}
+
+// ── Mouse interaction ────────────────────────────────────────────
+function worldOf(canvas) { return canvas === LC ? 'light' : 'shadow'; }
+
+function gridPos(canvas, e) {
+  const r = canvas.getBoundingClientRect();
+  const sx2 = canvas.width  / r.width;
+  const sy2 = canvas.height / r.height;
+  return {
+    x: Math.max(0, Math.min(GRID-1, Math.floor((e.clientX - r.left) * sx2 / TS))),
+    y: Math.max(0, Math.min(GRID-1, Math.floor((e.clientY - r.top)  * sy2 / TS))),
+  };
+}
+
+function onDown(canvas, e) {
+  e.preventDefault();
+  const pos = gridPos(canvas, e);
+  const w   = worldOf(canvas);
+
+  if (e.button === 2) {
+    erase(w, pos.x, pos.y);
+    st.painting = true; st.paintErase = true; st.activeWorld = w;
+    redraw(); return;
+  }
+
+  st.painting = true; st.paintErase = false; st.activeWorld = w;
+
+  if (st.mode === 'erase') {
+    erase(w, pos.x, pos.y);
+  } else if (st.mode === 'tile') {
+    paint(w, pos.x, pos.y, st.selTile);
+  } else if (st.mode === 'entity') {
+    handleEntPlace(w, pos.x, pos.y);
+    st.painting = false;
+  }
+  redraw();
+}
+
+function onMove(canvas, e) {
+  const pos = gridPos(canvas, e);
+  const w   = worldOf(canvas);
+  st.hov = { w, x: pos.x, y: pos.y };
+
+  if (st.painting && st.activeWorld === w) {
+    const key = pos.x + ',' + pos.y;
+    if (st.lastCell === key) { redraw(); return; }
+    st.lastCell = key;
+    if (st.paintErase || st.mode === 'erase') erase(w, pos.x, pos.y);
+    else if (st.mode === 'tile') paint(w, pos.x, pos.y, st.selTile);
+  }
+  redraw();
+}
+
+function onUp()    { st.painting = false; st.lastCell = null; }
+function onLeave() { st.hov = { w: null, x: -1, y: -1 }; redraw(); }
+
+function paint(w, x, y, t) {
+  st[w].tiles[y][x] = t;
+  st[w].ents = st[w].ents.filter(e => !(e.x === x && e.y === y));
+}
+
+function erase(w, x, y) {
+  st[w].tiles[y][x] = T.EMPTY;
+  st[w].ents = st[w].ents.filter(e => !(e.x === x && e.y === y));
+}
+
+// ── Entity placement ─────────────────────────────────────────────
+let pendingEnt = null;
+
+function handleEntPlace(w, x, y) {
+  // Toggle off if something already here
+  const idx = st[w].ents.findIndex(e => e.x === x && e.y === y);
+  if (idx !== -1) { st[w].ents.splice(idx, 1); redraw(); return; }
+
+  const key = st.selEnt;
+  const def = ENT_PAL.find(d => d.key === key);
+
+  if (key === 'sign' || key === 'headstone') {
+    pendingEnt = { w, x, y, key };
+    document.getElementById('modalTitle').textContent =
+      key === 'headstone' ? 'PLACE HEADSTONE' : 'PLACE SIGN';
+    document.getElementById('modalFields').innerHTML = `
+      <div class="fgroup">
+        <label>TEXT (single line)</label>
+        <input type="text" id="mSignText" placeholder="What the sign says...">
+      </div>
+      <div class="fgroup">
+        <label>LINES (multi-line, one per line — overrides text if set)</label>
+        <textarea id="mSignLines" placeholder="Line 1&#10;Line 2&#10;Line 3"></textarea>
+      </div>
+      <div class="fgroup">
+        <label><input type="checkbox" id="mBlocking" checked> Blocking (player cannot pass)</label>
+      </div>`;
+    openModal();
+  } else if (key === 'npc') {
+    pendingEnt = { w, x, y, key };
+    document.getElementById('modalTitle').textContent = 'PLACE NPC';
+    document.getElementById('modalFields').innerHTML = `
+      <div class="fgroup">
+        <label>ID (used internally)</label>
+        <input type="text" id="mNpcId" placeholder="e.g. watcher, sage, elder">
+      </div>
+      <div class="fgroup">
+        <label>DIALOGUE KEY</label>
+        <select id="mNpcDialogue">
+          <option value="watcher">watcher</option>
+          <option value="sage">sage</option>
+        </select>
+      </div>`;
+    openModal();
+  } else {
+    // Simple entity — place immediately
+    const id = makeId(w, def.type);
+    st[w].ents.push({ id, type: def.type, sprite: def.sprite, x, y });
+    redraw();
+  }
+}
+
+function makeId(w, type) {
+  const pfx = w === 'light' ? 'l' : 's';
+  const n   = st[w].ents.filter(e => e.type === type).length;
+  return `editor_${type}_${pfx}${n}`;
+}
+
+function openModal()   { document.getElementById('entityModal').classList.add('open'); }
+function cancelModal() { pendingEnt = null; document.getElementById('entityModal').classList.remove('open'); }
+
+function confirmModal() {
+  if (!pendingEnt) return;
+  const { w, x, y, key } = pendingEnt;
+
+  if (key === 'sign' || key === 'headstone') {
+    const textVal  = document.getElementById('mSignText').value.trim();
+    const linesVal = document.getElementById('mSignLines').value.trim();
+    const blocking = document.getElementById('mBlocking').checked;
+    const ent = { id: makeId(w,'sign'), type:'sign', sprite: key, x, y, blocking };
+    if (linesVal) ent.lines = linesVal.split('\n').map(l => l.trim()).filter(Boolean);
+    else if (textVal) ent.text = textVal;
+    st[w].ents.push(ent);
+  } else if (key === 'npc') {
+    const npcId = document.getElementById('mNpcId').value.trim() || makeId(w,'npc');
+    const dlg   = document.getElementById('mNpcDialogue').value;
+    st[w].ents.push({ id: npcId, type:'npc', sprite:'npc', x, y, dialogue: dlg });
+  }
+
+  cancelModal();
+  redraw();
+}
+
+// ── Mode / tile / entity selection ───────────────────────────────
+function setMode(m) {
+  st.mode = m;
+  ['tile','entity','erase'].forEach(k => {
+    document.getElementById('modeBtn_' + k).classList.toggle('active', k === m);
+  });
+  document.getElementById('tilePaletteWrap').style.display   = m === 'tile'   ? '' : 'none';
+  document.getElementById('entityPaletteWrap').style.display = m === 'entity' ? '' : 'none';
+  updateStatus();
+}
+
+function selectTile(id) {
+  st.selTile = id;
+  document.querySelectorAll('.tile-pb').forEach(b =>
+    b.classList.toggle('active', +b.dataset.id === id));
+  updateStatus();
+}
+
+function selectEnt(key) {
+  st.selEnt = key;
+  document.querySelectorAll('.ent-pb').forEach(b =>
+    b.classList.toggle('active', b.dataset.key === key));
+  updateStatus();
+}
+
+// ── Clear ────────────────────────────────────────────────────────
+function clearWorld(which) {
+  const msg = which === 'both' ? 'Clear both worlds?' : `Clear ${which} world?`;
+  if (!confirm(msg)) return;
+  if (which !== 'shadow') { st.light.tiles  = emptyGrid(); st.light.ents  = []; }
+  if (which !== 'light')  { st.shadow.tiles = emptyGrid(); st.shadow.ents = []; }
+  redraw();
+}
+
+// ── Export ───────────────────────────────────────────────────────
+function tileRows(tiles) {
+  return tiles.map((row, i) => {
+    const chars = Array.from(row).map(t => TILE_INFO[t].ch).join('');
+    const sfx   = i < GRID - 1 ? '\\n"' : '"';
+    return `        "${chars}${sfx}`;
+  }).join(' +\n');
+}
+
+function entJS(e, indent) {
+  const parts = [
+    `id: ${JSON.stringify(e.id)}`,
+    `type: ${JSON.stringify(e.type)}`,
+    `sprite: ${JSON.stringify(e.sprite)}`,
+    `x: ${e.x}`, `y: ${e.y}`,
+  ];
+  if (e.dialogue !== undefined) parts.push(`dialogue: ${JSON.stringify(e.dialogue)}`);
+  if (e.blocking !== undefined) parts.push(`blocking: ${e.blocking}`);
+  if (e.text     !== undefined) parts.push(`text: ${JSON.stringify(e.text)}`);
+  if (e.lines    !== undefined) parts.push(`lines: ${JSON.stringify(e.lines)}`);
+  return `${indent}{ ${parts.join(', ')} }`;
+}
+
+function generateCode() {
+  const rx = parseInt(document.getElementById('rxInput').value)  || 0;
+  const ry = parseInt(document.getElementById('ryInput').value) || 0;
+
+  const lRows = tileRows(st.light.tiles);
+  const sRows = tileRows(st.shadow.tiles);
+
+  const fmtEnts = (ents, indent) =>
+    ents.length === 0 ? '[]'
+      : `[\n${ents.map(e => entJS(e, indent + '  ')).join(',\n')}\n${indent}]`;
+
+  const code =
+`  // Room (${rx}, ${ry})
+  if (rx === ${rx} && ry === ${ry}) return {
+    light: {
+      tiles: parseRoom(
+${lRows}
+      ),
+      entities: ${fmtEnts(st.light.ents,  '      ')}
+    },
+    shadow: {
+      tiles: parseRoom(
+${sRows}
+      ),
+      entities: ${fmtEnts(st.shadow.ents, '      ')}
+    }
+  };`;
+
+  document.getElementById('codeOut').value = code;
+}
+
+function copyCode() {
+  const ta = document.getElementById('codeOut');
+  if (!ta.value) generateCode();
+  navigator.clipboard.writeText(ta.value).catch(() => {
+    ta.select(); document.execCommand('copy');
+  });
+}
+
+// ── Save / Load (localStorage) ───────────────────────────────────
+function saveRoom() {
+  const rx = parseInt(document.getElementById('rxInput').value)  || 0;
+  const ry = parseInt(document.getElementById('ryInput').value) || 0;
+
+  const data = {
+    rx, ry,
+    light:  { tiles: Array.from(st.light.tiles,  r => Array.from(r)), ents: st.light.ents  },
+    shadow: { tiles: Array.from(st.shadow.tiles, r => Array.from(r)), ents: st.shadow.ents },
+  };
+
+  const key = `diptych_room_${rx}_${ry}`;
+  localStorage.setItem(key, JSON.stringify(data));
+
+  // Update index
+  const idx = JSON.parse(localStorage.getItem('diptych_room_idx') || '[]');
+  if (!idx.some(r => r.rx === rx && r.ry === ry)) {
+    idx.push({ rx, ry });
+    localStorage.setItem('diptych_room_idx', JSON.stringify(idx));
+  }
+  alert(`Saved room (${rx}, ${ry}).`);
+}
+
+function loadRoom() {
+  const idx = JSON.parse(localStorage.getItem('diptych_room_idx') || '[]');
+  if (!idx.length) { alert('No saved rooms found.'); return; }
+
+  const list = idx.map((r, i) => `  ${i}: Room (${r.rx}, ${r.ry})`).join('\n');
+  const pick = prompt(`Saved rooms:\n${list}\n\nEnter number to load:`);
+  if (pick === null) return;
+
+  const n = parseInt(pick);
+  if (isNaN(n) || n < 0 || n >= idx.length) { alert('Invalid selection.'); return; }
+
+  const { rx, ry } = idx[n];
+  const raw = localStorage.getItem(`diptych_room_${rx}_${ry}`);
+  if (!raw) { alert('Data not found.'); return; }
+
+  applyRoomData(JSON.parse(raw));
+  alert(`Loaded room (${rx}, ${ry}).`);
+}
+
+function applyRoomData(d) {
+  document.getElementById('rxInput').value = d.rx;
+  document.getElementById('ryInput').value = d.ry;
+  st.light.tiles  = d.light.tiles.map(r  => Int8Array.from(r));
+  st.light.ents   = [...(d.light.ents || [])];
+  st.shadow.tiles = d.shadow.tiles.map(r => Int8Array.from(r));
+  st.shadow.ents  = [...(d.shadow.ents || [])];
+  redraw();
+}
+
+function importJSON() {
+  const raw = prompt('Paste saved room JSON (exported via Save button or copied from browser storage):');
+  if (!raw) return;
+  try { applyRoomData(JSON.parse(raw)); alert('Imported.'); }
+  catch { alert('Invalid JSON.'); }
+}
+
+// ── Status bar ───────────────────────────────────────────────────
+function updateStatus() {
+  const tname = TILE_INFO[st.selTile]?.name || '';
+  const edef  = ENT_PAL.find(d => d.key === st.selEnt);
+  const ename = edef?.label || '';
+  const detail = st.mode === 'tile' ? ` · ${tname}` : st.mode === 'entity' ? ` · ${ename}` : '';
+  document.getElementById('stMode').textContent  = `mode: ${st.mode}${detail}`;
+  document.getElementById('stCount').textContent =
+    `entities: L=${st.light.ents.length} S=${st.shadow.ents.length}`;
+}
+
+// ── Build palettes ───────────────────────────────────────────────
+function buildPalettes() {
+  const tp = document.getElementById('tilePalette');
+  TILE_INFO.forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'palette-btn tile-pb' + (t.id === st.selTile ? ' active' : '');
+    b.dataset.id = t.id;
+    b.onclick = () => selectTile(t.id);
+    const sw = document.createElement('span');
+    sw.className = 'swatch'; sw.style.background = t.lc;
+    b.append(sw, document.createTextNode(t.name));
+    tp.appendChild(b);
+  });
+
+  const ep = document.getElementById('entityPalette');
+  ENT_PAL.forEach(d => {
+    const b = document.createElement('button');
+    b.className = 'palette-btn ent-pb' + (d.key === st.selEnt ? ' active' : '');
+    b.dataset.key = d.key;
+    b.onclick = () => selectEnt(d.key);
+    const ic = document.createElement('span');
+    ic.className = 'eicon'; ic.style.color = d.color; ic.textContent = d.icon;
+    b.append(ic, document.createTextNode(d.label));
+    ep.appendChild(b);
+  });
+}
+
+// ── Keyboard shortcuts ───────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+  if (e.key === 'Escape') { cancelModal(); return; }
+  const n = parseInt(e.key);
+  if (n >= 1 && n <= 7) { setMode('tile'); selectTile(n - 1); }
+  if (e.key === 'e' || e.key === 'E') setMode('erase');
+  if (e.key === 'p' || e.key === 'P') setMode('tile');
+});
+
+// ── Wire up canvases ─────────────────────────────────────────────
+[LC, SC].forEach(c => {
+  c.addEventListener('mousedown',  e => onDown(c, e));
+  c.addEventListener('mousemove',  e => onMove(c, e));
+  c.addEventListener('mouseleave', ()  => onLeave());
+  c.addEventListener('contextmenu', e => e.preventDefault());
+});
+document.addEventListener('mouseup', onUp);
+
+// ── Init ─────────────────────────────────────────────────────────
+buildPalettes();
+redraw();
+</script>
+</body>
+</html>
